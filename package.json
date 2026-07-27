@@ -12,6 +12,10 @@
     "build:web": "npm run build -w apps/web",
     "build:api": "npm run build -w apps/api",
     "lint:web": "npm run lint -w apps/web",
-    "lint:api": "npm run lint -w apps/api"
+    "lint:api": "npm run lint -w apps/api",
+    "db:migrate": "npm run prisma:migrate -w apps/api",
+    "db:generate": "npm run prisma:generate -w apps/api",
+    "db:studio": "npm run prisma:studio -w apps/api",
+    "db:import": "npm run prisma:import -w apps/api"
   }
 }

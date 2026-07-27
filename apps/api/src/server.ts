@@ -1,23 +1,60 @@
 import { app } from './app.js';
-import { ensureStorage } from './config/storage.js';
+
+import {
+  ensureStorage,
+} from './config/storage.js';
+
+import {
+  prisma,
+} from './lib/prisma.js';
 
 const PORT = 3001;
 
 async function startServer(): Promise<void> {
   await ensureStorage();
 
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(
       `Harmonizer API disponible en http://localhost:${PORT}`,
     );
   });
+
+  const shutdown = async (
+    signal: string,
+  ): Promise<void> => {
+    console.log(
+      `\nRecibida señal ${signal}. Cerrando backend...`,
+    );
+
+    server.close(async () => {
+      await prisma.$disconnect();
+
+      console.log(
+        'Backend y base de datos cerrados',
+      );
+
+      process.exit(0);
+    });
+  };
+
+  process.on('SIGINT', () => {
+    void shutdown('SIGINT');
+  });
+
+  process.on('SIGTERM', () => {
+    void shutdown('SIGTERM');
+  });
 }
 
-startServer().catch((error: unknown) => {
-  console.error(
-    'No se ha podido iniciar Harmonizer API',
-    error,
-  );
+startServer().catch(
+  async (error: unknown) => {
+    console.error(
+      'No se ha podido iniciar Harmonizer API',
+      error,
+    );
 
-  process.exit(1);
-});
+    await prisma.$disconnect();
+
+    process.exit(1);
+  },
+);

@@ -1,0 +1,77 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Song {
+  id              String            @id @default(uuid())
+  title           String
+  artist          String?
+  audioPath       String
+  midiPath        String
+  durationSeconds Float
+  midiOffsetMs    Int               @default(0)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  tracks          Track[]
+  sessions        PracticeSession[]
+}
+
+model Track {
+  id         String   @id @default(uuid())
+  songId     String
+  position   Int
+  name       String
+  instrument String?
+  minMidi    Int
+  maxMidi    Int
+
+  /// Array de objetos NoteEvent.
+  notes      Json
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  song       Song     @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  sessions   PracticeSession[]
+
+  @@unique([songId, position])
+  @@index([songId])
+}
+
+model PracticeSession {
+  id                    String   @id @default(uuid())
+  songId                String
+  trackId               String
+
+  globalAccuracy        Float
+  pitchAccuracy         Float
+  rhythmAccuracy        Float
+
+  correctNotes          Int
+  incorrectNotes        Int
+  evaluatedNotes        Int
+
+  latencyCompensationMs Int
+  pitchToleranceCents   Int
+
+  /// Array de resultados individuales de notas.
+  results               Json
+
+  createdAt             DateTime @default(now())
+
+  song                  Song     @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  track                 Track    @relation(fields: [trackId], references: [id], onDelete: Cascade)
+
+  @@index([songId])
+  @@index([trackId])
+  @@index([createdAt])
+}

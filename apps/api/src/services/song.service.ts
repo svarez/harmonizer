@@ -3,21 +3,35 @@ import { randomUUID } from 'node:crypto';
 
 import {
   mkdir,
-  readFile,
-  readdir,
   rename,
   rm,
-  writeFile,
 } from 'node:fs/promises';
 
 import type {
-  NoteEvent,
   Song,
   SongSummary,
 } from '@harmonizer/shared';
 
-import { SONGS_DIRECTORY } from '../config/storage.js';
-import { parseMidiFile } from './midi.service.js';
+import type {
+  Prisma,
+} from '../generated/prisma/client.js';
+
+import {
+  SONGS_DIRECTORY,
+} from '../config/storage.js';
+
+import {
+  prisma,
+} from '../lib/prisma.js';
+
+import {
+  parseMidiFile,
+} from './midi.service.js';
+
+import {
+  notesFromJson,
+  notesToJson,
+} from './note-json.service.js';
 
 interface CreateSongInput {
   title: string;
@@ -26,6 +40,13 @@ interface CreateSongInput {
   audioFile: Express.Multer.File;
   midiFile: Express.Multer.File;
 }
+
+type SongWithTracks =
+  Prisma.SongGetPayload<{
+    include: {
+      tracks: true;
+    };
+  }>;
 
 export async function createSong(
   input: CreateSongInput,
@@ -37,10 +58,6 @@ export async function createSong(
     songId,
   );
 
-  await mkdir(songDirectory, {
-    recursive: true,
-  });
-
   const audioDestination = path.join(
     songDirectory,
     'audio.mp3',
@@ -51,15 +68,34 @@ export async function createSong(
     'song.mid',
   );
 
+  const audioPath = path.posix.join(
+    'songs',
+    songId,
+    'audio.mp3',
+  );
+
+  const midiPath = path.posix.join(
+    'songs',
+    songId,
+    'song.mid',
+  );
+
+  await mkdir(songDirectory, {
+    recursive: true,
+  });
+
   try {
     /*
-     * Analizamos el MIDI antes de moverlo.
-     * Si el archivo es inválido, no se crea la canción.
+     * Se analiza antes de almacenar la canción.
+     * Un MIDI inválido no debe generar registros.
      */
     const parsedMidi = await parseMidiFile(
       input.midiFile.path,
     );
 
+    /*
+     * Los archivos definitivos se guardan en storage.
+     */
     await Promise.all([
       rename(
         input.audioFile.path,
@@ -72,33 +108,65 @@ export async function createSong(
       ),
     ]);
 
-    const song: Song = {
-      id: songId,
-      title: input.title,
-      artist: input.artist || undefined,
+    /*
+     * Metadatos y pistas se guardan en una única
+     * operación anidada de Prisma.
+     */
+    const record = await prisma.song.create({
+      data: {
+        id: songId,
+        title: input.title,
+        artist: input.artist,
+        audioPath,
+        midiPath,
 
-      audioUrl: `/media/songs/${songId}/audio.mp3`,
+        durationSeconds:
+          parsedMidi.durationSeconds,
 
-      durationSeconds:
-        parsedMidi.durationSeconds,
+        midiOffsetMs:
+          input.midiOffsetMs,
 
-      detectedMidiInitialSilenceMs: Math.round(
-        parsedMidi.detectedInitialSilenceSeconds * 1000,
-      ),
-      midiOffsetMs: input.midiOffsetMs,
-      tracks: parsedMidi.tracks,
-      createdAt: new Date().toISOString(),
-    };
+        tracks: {
+          create: parsedMidi.tracks.map(
+            (track, position) => ({
+              position,
+              name: track.name,
+              instrument:
+                track.instrument,
 
-    await writeFile(
-      path.join(songDirectory, 'song.json'),
-      JSON.stringify(song, null, 2),
-      'utf8',
-    );
+              minMidi: track.minMidi,
+              maxMidi: track.maxMidi,
 
-    return song;
+              notes: notesToJson(
+                track.notes,
+              ),
+            }),
+          ),
+        },
+      },
+
+      include: {
+        tracks: {
+          orderBy: {
+            position: 'asc',
+          },
+        },
+      },
+    });
+
+    return databaseSongToSong(record);
   } catch (error) {
+    /*
+     * Si falla Prisma después de mover los archivos,
+     * eliminamos tanto el posible registro como la carpeta.
+     */
     await Promise.allSettled([
+      prisma.song.delete({
+        where: {
+          id: songId,
+        },
+      }),
+
       rm(songDirectory, {
         recursive: true,
         force: true,
@@ -120,154 +188,125 @@ export async function createSong(
 export async function listSongs(): Promise<
   SongSummary[]
 > {
-  const entries = await readdir(
-    SONGS_DIRECTORY,
-    {
-      withFileTypes: true,
-    },
-  );
+  const records =
+    await prisma.song.findMany({
+      orderBy: {
+        title: 'asc',
+      },
 
-  const songs = await Promise.all(
-    entries
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => readSongFile(entry.name)),
-  );
+      select: {
+        id: true,
+        title: true,
+        artist: true,
+        audioPath: true,
+        durationSeconds: true,
+        midiOffsetMs: true,
+        createdAt: true,
 
-  return songs
-    .map(songToSummary)
-    .sort((firstSong, secondSong) => {
-      return firstSong.title.localeCompare(
-        secondSong.title,
-      );
+        _count: {
+          select: {
+            tracks: true,
+          },
+        },
+      },
     });
+
+  return records.map((record) => ({
+    id: record.id,
+    title: record.title,
+    artist:
+      record.artist ?? undefined,
+
+    audioUrl:
+      storagePathToPublicUrl(
+        record.audioPath,
+      ),
+
+    durationSeconds:
+      record.durationSeconds,
+
+    midiOffsetMs:
+      record.midiOffsetMs,
+
+    trackCount:
+      record._count.tracks,
+
+    createdAt:
+      record.createdAt.toISOString(),
+  }));
 }
 
 export async function getSong(
   songId: string,
 ): Promise<Song | null> {
-  try {
-    return await readSongFile(songId);
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      'code' in error &&
-      error.code === 'ENOENT'
-    ) {
-      return null;
-    }
+  const record =
+    await prisma.song.findUnique({
+      where: {
+        id: songId,
+      },
 
-    throw error;
+      include: {
+        tracks: {
+          orderBy: {
+            position: 'asc',
+          },
+        },
+      },
+    });
+
+  if (!record) {
+    return null;
   }
+
+  return databaseSongToSong(record);
 }
 
-async function readSongFile(
-  songId: string,
-): Promise<Song> {
-  const metadataPath = path.join(
-    SONGS_DIRECTORY,
-    songId,
-    'song.json',
-  );
-
-  const contents = await readFile(
-    metadataPath,
-    'utf8',
-  );
-
-  return normalizeLegacySongTiming(
-    JSON.parse(contents) as Song,
-  );
-}
-
-function getFirstNoteStartSeconds(
-  notes: NoteEvent[],
-): number {
-  return notes.reduce(
-    (earliestStartSeconds, note) =>
-      Math.min(
-        earliestStartSeconds,
-        note.startSeconds,
-      ),
-    Number.POSITIVE_INFINITY,
-  );
-}
-
-function normalizeLegacySongTiming(
-  song: Song,
+function databaseSongToSong(
+  record: SongWithTracks,
 ): Song {
-  if (
-    song.detectedMidiInitialSilenceMs !==
-      undefined ||
-    song.midiOffsetMs !== 0
-  ) {
-    return song;
-  }
-
-  const detectedInitialSilenceSeconds =
-    song.tracks.reduce(
-      (earliestStartSeconds, track) =>
-        Math.min(
-          earliestStartSeconds,
-          getFirstNoteStartSeconds(track.notes),
-        ),
-      Number.POSITIVE_INFINITY,
-    );
-
-  if (
-    !Number.isFinite(
-      detectedInitialSilenceSeconds,
-    ) ||
-    detectedInitialSilenceSeconds <= 0
-  ) {
-    return {
-      ...song,
-      detectedMidiInitialSilenceMs: 0,
-    };
-  }
-
   return {
-    ...song,
-    durationSeconds: Math.max(
-      song.durationSeconds -
-        detectedInitialSilenceSeconds,
-      0,
-    ),
-    detectedMidiInitialSilenceMs: Math.round(
-      detectedInitialSilenceSeconds * 1000,
-    ),
-    tracks: song.tracks.map((track) => ({
-      ...track,
-      notes: track.notes.map((note) => {
-        const startSeconds = Math.max(
-          note.startSeconds -
-            detectedInitialSilenceSeconds,
-          0,
-        );
+    id: record.id,
+    title: record.title,
+    artist:
+      record.artist ?? undefined,
 
-        return {
-          ...note,
-          startSeconds,
-          endSeconds:
-            startSeconds + note.durationSeconds,
-        };
+    audioUrl:
+      storagePathToPublicUrl(
+        record.audioPath,
+      ),
+
+    durationSeconds:
+      record.durationSeconds,
+
+    midiOffsetMs:
+      record.midiOffsetMs,
+
+    createdAt:
+      record.createdAt.toISOString(),
+
+    tracks: record.tracks.map(
+      (track) => ({
+        id: track.id,
+        name: track.name,
+        instrument:
+          track.instrument ?? undefined,
+
+        minMidi: track.minMidi,
+        maxMidi: track.maxMidi,
+
+        notes: notesFromJson(
+          track.notes,
+        ),
       }),
-    })),
+    ),
   };
 }
 
-function songToSummary(
-  song: Song,
-): SongSummary {
-  return {
-    id: song.id,
-    title: song.title,
-    artist: song.artist,
-    audioUrl: song.audioUrl,
-    durationSeconds: song.durationSeconds,
-    detectedMidiInitialSilenceMs:
-      song.detectedMidiInitialSilenceMs,
-    midiOffsetMs: song.midiOffsetMs,
-    trackCount: song.tracks.length,
-    createdAt: song.createdAt,
-  };
+function storagePathToPublicUrl(
+  storagePath: string,
+): string {
+  const normalizedPath =
+    storagePath.replaceAll('\\', '/');
+
+  return `/media/${normalizedPath}`;
 }

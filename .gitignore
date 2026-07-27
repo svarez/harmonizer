@@ -2,3 +2,19 @@ node_modules/
 .DS_Store
 .env
 storage/
+
+# Environment variables
+apps/api/.env
+
+# Prisma generated client
+apps/api/src/generated/prisma/
+
+# Local database
+storage/*.db
+storage/*.db-journal
+storage/*.db-shm
+storage/*.db-wal
+
+# Uploaded media
+storage/tmp/
+storage/songs/
