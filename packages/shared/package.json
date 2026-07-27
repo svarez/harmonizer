@@ -1,0 +1,14 @@
+{
+  "name": "@harmonizer/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/music.ts",
+  "types": "./src/music.ts",
+  "exports": {
+    ".": {
+      "types": "./src/music.ts",
+      "default": "./src/music.ts"
+    }
+  }
+}
