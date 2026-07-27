@@ -1,16 +1,17 @@
 import {
   Button,
-  Checkbox,
   Container,
   Group,
   NumberInput,
   Paper,
+  Radio,
   Stack,
   Text,
   Title,
 } from '@mantine/core';
 
 import {
+  type CSSProperties,
   useCallback,
   useEffect,
   useMemo,
@@ -37,6 +38,7 @@ import { PlayerControls } from './components/PlayerControls';
 import { LivePitchIndicator } from './components/LivePitchIndicator';
 import { ResultsPanel } from './components/ResultsPanel';
 import type { PitchSample } from './types';
+import { getVocalTracks } from '../vocalTracks';
 
 interface PracticePageProps {
   song: Song;
@@ -104,35 +106,6 @@ function getTrackPitchRange(
   );
 }
 
-function getDefaultSupportingTrackIds(
-  song: Song,
-  track: SongTrack,
-): string[] {
-  const selectedTrackIndex = song.tracks.findIndex(
-    (songTrack) => songTrack.id === track.id,
-  );
-
-  if (selectedTrackIndex === -1) {
-    return song.tracks
-      .filter((songTrack) => songTrack.id !== track.id)
-      .slice(0, 2)
-      .map((songTrack) => songTrack.id);
-  }
-
-  return song.tracks
-    .map((songTrack, index) => ({
-      id: songTrack.id,
-      distance: Math.abs(index - selectedTrackIndex),
-    }))
-    .filter((songTrack) => songTrack.id !== track.id)
-    .sort(
-      (firstTrack, secondTrack) =>
-        firstTrack.distance - secondTrack.distance,
-    )
-    .slice(0, 2)
-    .map((songTrack) => songTrack.id);
-}
-
 function getTrackColor(trackIndex: number): string {
   return TRACK_COLORS[trackIndex % TRACK_COLORS.length];
 }
@@ -146,6 +119,19 @@ export function PracticePage({
   track,
   onBack,
 }: PracticePageProps) {
+  const [activeTrack, setActiveTrack] =
+    useState(() => {
+      const vocalTracks = getVocalTracks(song);
+
+      return (
+        vocalTracks.find(
+          (songTrack) => songTrack.id === track.id,
+        ) ??
+        vocalTracks[0] ??
+        track
+      );
+    });
+
   const [midiOffsetMs, setMidiOffsetMs] =
     useState(song.midiOffsetMs);
 
@@ -186,13 +172,6 @@ export function PracticePage({
   const [playbackSource, setPlaybackSource] =
     useState<PlaybackSource>('mp3');
 
-  const [
-    selectedSupportingTrackIds,
-    setSelectedSupportingTrackIds,
-  ] = useState<string[]>(() =>
-    getDefaultSupportingTrackIds(song, track),
-  );
-
   const player = useAudioPlayer();
   const {
     audioRef,
@@ -225,38 +204,30 @@ export function PracticePage({
   const practiceNotes = useMemo(
     () =>
       transposeNotes(
-        track.notes,
+        activeTrack.notes,
         vocalTransposeSemitones,
       ),
     [
-      track.notes,
+      activeTrack.notes,
       vocalTransposeSemitones,
     ],
   );
 
-  const practiceMinMidi =
-    track.minMidi + vocalTransposeSemitones;
+  const visualNotes = activeTrack.notes;
 
-  const practiceMaxMidi =
-    track.maxMidi + vocalTransposeSemitones;
-
-  const availableSupportingTracks = useMemo(() => {
-    return song.tracks.filter(
-      (songTrack) => songTrack.id !== track.id,
-    );
-  }, [
-    song.tracks,
-    track.id,
-  ]);
+  const vocalTracks = useMemo(
+    () => getVocalTracks(song),
+    [song],
+  );
 
   const supportingTracks = useMemo(
     () =>
-      availableSupportingTracks.filter((songTrack) =>
-        selectedSupportingTrackIds.includes(songTrack.id),
+      vocalTracks.filter(
+        (songTrack) => songTrack.id !== activeTrack.id,
       ),
     [
-      availableSupportingTracks,
-      selectedSupportingTrackIds,
+      activeTrack.id,
+      vocalTracks,
     ],
   );
 
@@ -268,10 +239,10 @@ export function PracticePage({
             lowestMidi,
             getTrackPitchRange(supportingTrack).minMidi,
           ),
-        practiceMinMidi,
+        getTrackPitchRange(activeTrack).minMidi,
       ),
     [
-      practiceMinMidi,
+      activeTrack,
       supportingTracks,
     ],
   );
@@ -284,10 +255,10 @@ export function PracticePage({
             highestMidi,
             getTrackPitchRange(supportingTrack).maxMidi,
           ),
-        practiceMaxMidi,
+        getTrackPitchRange(activeTrack).maxMidi,
       ),
     [
-      practiceMaxMidi,
+      activeTrack,
       supportingTracks,
     ],
   );
@@ -374,7 +345,7 @@ export function PracticePage({
       (currentTime - midiOffsetMs / 1000) /
       midiTimeScale;
     const activeNote = findActiveNote(
-      track.notes,
+      activeTrack.notes,
       originalMidiTime,
     );
 
@@ -426,7 +397,7 @@ export function PracticePage({
     pitchSample,
     resetMidiPlayback,
     resetPracticeSession,
-    track.notes,
+    activeTrack.notes,
   ]);
 
   const handlePlayPause =
@@ -469,26 +440,22 @@ export function PracticePage({
     }
   };
 
-  const handleSupportingTrackToggle = (
-    supportingTrackId: string,
-    checked: boolean,
+  const handleMainTrackChange = (
+    trackId: string,
   ): void => {
-    setSelectedSupportingTrackIds((currentTrackIds) => {
-      if (!checked) {
-        return currentTrackIds.filter(
-          (trackId) => trackId !== supportingTrackId,
-        );
-      }
+    const nextTrack = song.tracks.find(
+      (songTrack) => songTrack.id === trackId,
+    );
 
-      if (currentTrackIds.includes(supportingTrackId)) {
-        return currentTrackIds;
-      }
+    if (!nextTrack || nextTrack.id === activeTrack.id) {
+      return;
+    }
 
-      return [
-        ...currentTrackIds,
-        supportingTrackId,
-      ].slice(-2);
-    });
+    setActiveTrack(nextTrack);
+    setAutomaticVocalOctaveShift(0);
+    octaveShiftVotesRef.current = {};
+    midiPlayback.reset();
+    practiceSession.reset();
   };
 
   const handleBack =
@@ -508,17 +475,6 @@ export function PracticePage({
       ]),
     );
   }, [song.tracks]);
-
-  const visibleTrackLegend = useMemo(
-    () => [
-      track,
-      ...supportingTracks,
-    ].slice(0, 6),
-    [
-      supportingTracks,
-      track,
-    ],
-  );
 
   const coloredSupportingTracks = useMemo(
     () =>
@@ -571,7 +527,7 @@ export function PracticePage({
               {song.artist ||
                 'Artista desconocido'}
               {' · '}
-              {track.name}
+              {activeTrack.name}
             </Text>
           </div>
 
@@ -643,7 +599,7 @@ export function PracticePage({
             </div>
 
             <PianoRollCanvas
-              notes={practiceNotes}
+              notes={visualNotes}
               supportingTracks={coloredSupportingTracks}
               minMidi={rollMinMidi}
               maxMidi={rollMaxMidi}
@@ -655,36 +611,57 @@ export function PracticePage({
               }
               midiOffsetMs={midiOffsetMs}
               midiTimeScale={midiTimeScale}
+              mainTrackColor={
+                trackColorById.get(activeTrack.id) ??
+                TRACK_COLORS[0]
+              }
               lyrics={song.lyrics}
               livePitchSampleRef={livePitchSampleRef}
               livePitchSample={practiceSession.pitchSample}
             />
 
-            <Stack className="practice-roll-legend" gap="md">
-              {visibleTrackLegend.map((legendTrack) => (
-                <Group
-                  className="practice-roll-legend__item"
-                  key={legendTrack.id}
-                  gap="sm"
-                  wrap="nowrap"
+            <Stack className="practice-roll-legend" gap="sm">
+              <Text fw={700} size="sm">
+                Pista principal
+              </Text>
+
+              {vocalTracks.length === 0 ? (
+                <Text size="xs" c="dimmed">
+                  No se han detectado pistas vocales.
+                </Text>
+              ) : (
+                <Radio.Group
+                  value={activeTrack.id}
+                  onChange={handleMainTrackChange}
                 >
-                  <span
-                    className="practice-track-dot"
-                    style={{
-                      backgroundColor:
-                        trackColorById.get(legendTrack.id),
-                    }}
-                  />
-                  <div>
-                    <Text size="sm" truncate>
-                      {legendTrack.name}
-                    </Text>
-                    <Text size="xs" c="dimmed" truncate>
-                      {legendTrack.instrument || 'Lead Vocals'}
-                    </Text>
-                  </div>
-                </Group>
-              ))}
+                  <Stack gap="xs">
+                    {vocalTracks.map((legendTrack) => (
+                      <Radio
+                        className="practice-track-option"
+                        key={legendTrack.id}
+                        style={
+                          {
+                            '--practice-track-color':
+                              trackColorById.get(legendTrack.id) ??
+                              TRACK_COLORS[0],
+                          } as CSSProperties
+                        }
+                        value={legendTrack.id}
+                        label={
+                          <div className="practice-track-label">
+                            <Text size="sm">
+                              {legendTrack.name}
+                            </Text>
+                            <Text size="xs" c="dimmed">
+                              {legendTrack.instrument || 'Lead Vocals'}
+                            </Text>
+                          </div>
+                        }
+                      />
+                    ))}
+                  </Stack>
+                </Radio.Group>
+              )}
             </Stack>
           </div>
         </Paper>
@@ -726,181 +703,95 @@ export function PracticePage({
             radius="md"
             p="lg"
           >
-            <div className="practice-settings__grid">
-              <Stack gap="md">
-                <Title order={4}>
-                  Configuración
-                </Title>
+            <Stack gap="sm">
+              <Title order={4}>
+                Configuración
+              </Title>
 
-                {availableSupportingTracks.length > 0 && (
-                  <Stack className="practice-settings__section" gap="sm">
-                    <div>
-                      <Text fw={650} size="sm">
-                        Pistas combinadas
-                      </Text>
+              <Text className="practice-section-label">
+                SINCRONIZACIÓN
+              </Text>
 
-                      <Text size="xs" c="dimmed">
-                        La pista principal siempre queda resaltada; puedes sumar hasta dos pistas adicionales.
-                      </Text>
-                    </div>
-
-                    <Checkbox
-                      className="practice-track-option"
-                      checked
-                      disabled
-                      label={
-                        <div className="practice-track-label">
-                          <Group gap="xs" wrap="nowrap">
-                            <span
-                              className="practice-track-dot"
-                              style={{
-                                backgroundColor:
-                                  trackColorById.get(track.id),
-                              }}
-                            />
-                            <Text size="sm" truncate>
-                              {track.name}
-                            </Text>
-                            <Text className="practice-track-badge">
-                              Principal
-                            </Text>
-                          </Group>
-                        </div>
-                      }
-                    />
-
-                    {availableSupportingTracks.map(
-                      (supportingTrack) => (
-                        <Checkbox
-                          className="practice-track-option"
-                          key={supportingTrack.id}
-                          checked={selectedSupportingTrackIds.includes(
-                            supportingTrack.id,
-                          )}
-                          label={
-                            <div className="practice-track-label">
-                              <Group gap="xs" wrap="nowrap">
-                                <span
-                                  className="practice-track-dot"
-                                  style={{
-                                    backgroundColor:
-                                      trackColorById.get(supportingTrack.id),
-                                  }}
-                                />
-                                <Text size="sm" truncate>
-                                  {supportingTrack.name}
-                                </Text>
-                                {supportingTrack.instrument && (
-                                  <Text
-                                    className="practice-track-description"
-                                    size="xs"
-                                    truncate
-                                  >
-                                    {supportingTrack.instrument}
-                                  </Text>
-                                )}
-                              </Group>
-                            </div>
-                          }
-                          onChange={(event) => {
-                            handleSupportingTrackToggle(
-                              supportingTrack.id,
-                              event.currentTarget.checked,
-                            );
-                          }}
-                        />
-                      ),
-                    )}
-                  </Stack>
-                )}
-              </Stack>
-
-              <Stack className="practice-sync-panel" gap="sm">
-                <Text className="practice-section-label">
-                  SINCRONIZACIÓN
+              <div>
+                <Text fw={650} size="sm">
+                  Offset MIDI respecto al MP3
                 </Text>
+                <Text size="xs" c="dimmed">
+                  Un valor positivo retrasa las notas MIDI
+                </Text>
+              </div>
 
-                <div>
-                  <Text fw={650} size="sm">
-                    Offset MIDI respecto al MP3
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    Un valor positivo retrasa las notas MIDI
-                  </Text>
-                </div>
+              <Group gap="xs" wrap="nowrap">
+                {[-10, -1, 50, 1, 10].map((offsetStep) => (
+                  <Button
+                    className="practice-offset-button"
+                    key={offsetStep}
+                    variant="default"
+                    onClick={() => {
+                      setMidiOffsetMs(
+                        midiOffsetMs + offsetStep,
+                      );
+                    }}
+                  >
+                    {offsetStep === 50
+                      ? '+50 ms'
+                      : offsetStep > 0
+                        ? `+${offsetStep}`
+                        : offsetStep}
+                  </Button>
+                ))}
+              </Group>
 
-                <Group gap="xs" wrap="nowrap">
-                  {[-10, -1, 50, 1, 10].map((offsetStep) => (
-                    <Button
-                      className="practice-offset-button"
-                      key={offsetStep}
-                      variant="default"
-                      onClick={() => {
-                        setMidiOffsetMs(
-                          midiOffsetMs + offsetStep,
-                        );
-                      }}
-                    >
-                      {offsetStep === 50
-                        ? '+50 ms'
-                        : offsetStep > 0
-                          ? `+${offsetStep}`
-                          : offsetStep}
-                    </Button>
-                  ))}
-                </Group>
+              <NumberInput
+                className="practice-input"
+                label="Escala temporal MIDI"
+                description="100.00% hace que el MIDI un 0.20 % más largo"
+                value={midiTimeScale * 100}
+                onChange={(value) => {
+                  setMidiTimeScale(
+                    (Number(value) || 100) / 100,
+                  );
+                }}
+                min={95}
+                max={105}
+                step={0.01}
+                decimalScale={2}
+                suffix=" %"
+              />
 
-                <NumberInput
-                  className="practice-input"
-                  label="Escala temporal MIDI"
-                  description="100.00% hace que el MIDI un 0.20 % más largo"
-                  value={midiTimeScale * 100}
-                  onChange={(value) => {
-                    setMidiTimeScale(
-                      (Number(value) || 100) / 100,
-                    );
-                  }}
-                  min={95}
-                  max={105}
-                  step={0.01}
-                  decimalScale={2}
-                  suffix=" %"
-                />
+              <NumberInput
+                className="practice-input"
+                label="Compensación del micrófono"
+                description="Corrige la latencia de entrada"
+                value={latencyCompensationMs}
+                onChange={(value) => {
+                  setLatencyCompensationMs(
+                    Number(value) || 0,
+                  );
+                }}
+                min={0}
+                max={1000}
+                step={10}
+                suffix=" ms"
+              />
 
-                <NumberInput
-                  className="practice-input"
-                  label="Compensación del micrófono"
-                  description="Corrige la latencia de entrada"
-                  value={latencyCompensationMs}
-                  onChange={(value) => {
-                    setLatencyCompensationMs(
-                      Number(value) || 0,
-                    );
-                  }}
-                  min={0}
-                  max={1000}
-                  step={10}
-                  suffix=" ms"
-                />
-
-                <NumberInput
-                  className="practice-input"
-                  label="Tolerancia de afinación"
-                  description="Sólo notas; equivale a medio semitono"
-                  value={pitchToleranceCents}
-                  onChange={(value) => {
-                    setPitchToleranceCents(
-                      Number(value) || 50,
-                    );
-                  }}
-                  min={10}
-                  max={100}
-                  step={5}
-                  prefix="±"
-                  suffix=" cents"
-                />
-              </Stack>
-            </div>
+              <NumberInput
+                className="practice-input"
+                label="Tolerancia de afinación"
+                description="Sólo notas; equivale a medio semitono"
+                value={pitchToleranceCents}
+                onChange={(value) => {
+                  setPitchToleranceCents(
+                    Number(value) || 50,
+                  );
+                }}
+                min={10}
+                max={100}
+                step={5}
+                prefix="±"
+                suffix=" cents"
+              />
+            </Stack>
           </Paper>
         </div>
 

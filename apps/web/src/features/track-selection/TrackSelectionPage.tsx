@@ -1,4 +1,5 @@
 import {
+  Alert,
   Badge,
   Button,
   Card,
@@ -16,6 +17,7 @@ import type {
 } from '@harmonizer/shared';
 
 import { midiToNoteName } from '../practice/musicUtils';
+import { getVocalTracks } from '../vocalTracks';
 
 interface TrackSelectionPageProps {
   song: Song;
@@ -32,6 +34,8 @@ export function TrackSelectionPage({
   onSynchronizeLyrics,
   onBack,
 }: TrackSelectionPageProps) {
+  const vocalTracks = getVocalTracks(song);
+
   return (
     <Container size="xl" py="xl">
       <Stack gap="xl">
@@ -81,69 +85,73 @@ export function TrackSelectionPage({
         </div>
 
         <Text>
-          Selecciona la voz o instrumento que
-          quieres practicar.
+          Selecciona la pista vocal que quieres practicar.
         </Text>
 
-        <SimpleGrid
-          cols={{
-            base: 1,
-            sm: 2,
-            lg: 3,
-          }}
-        >
-          {song.tracks.map((track) => (
-            <Card
-              key={track.id}
-              withBorder
-              radius="lg"
-              padding="lg"
-            >
-              <Stack gap="md">
-                <div>
-                  <Title order={3}>
-                    {track.name}
-                  </Title>
+        {vocalTracks.length === 0 ? (
+          <Alert color="yellow" title="Sin pistas vocales">
+            No se ha detectado ninguna pista vocal en esta canción.
+          </Alert>
+        ) : (
+          <SimpleGrid
+            cols={{
+              base: 1,
+              sm: 2,
+              lg: 3,
+            }}
+          >
+            {vocalTracks.map((track) => (
+              <Card
+                key={track.id}
+                withBorder
+                radius="lg"
+                padding="lg"
+              >
+                <Stack gap="md">
+                  <div>
+                    <Title order={3}>
+                      {track.name}
+                    </Title>
 
-                  <Text c="dimmed">
-                    {track.instrument ||
-                      'Instrumento no especificado'}
-                  </Text>
-                </div>
+                    <Text c="dimmed">
+                      {track.instrument || 'Voz'}
+                    </Text>
+                  </div>
 
-                <Group>
-                  <Badge variant="light">
-                    {track.notes.length}{' '}
-                    {track.notes.length === 1
-                      ? 'nota'
-                      : 'notas'}
-                  </Badge>
+                  <Group>
+                    <Badge variant="light">
+                      {track.notes.length}{' '}
+                      {track.notes.length === 1
+                        ? 'nota'
+                        : 'notas'}
+                    </Badge>
 
-                  <Badge
-                    variant="light"
-                    color="gray"
+                    <Badge
+                      variant="light"
+                      color="gray"
+                    >
+                      {midiToNoteName(
+                        track.minMidi,
+                      )}
+                      {' – '}
+                      {midiToNoteName(
+                        track.maxMidi,
+                      )}
+                    </Badge>
+                  </Group>
+
+                  <Button
+                    onClick={() => {
+                      onSelectTrack(track);
+                    }}
                   >
-                    {midiToNoteName(
-                      track.minMidi,
-                    )}
-                    {' – '}
-                    {midiToNoteName(
-                      track.maxMidi,
-                    )}
-                  </Badge>
-                </Group>
-
-                <Button
-                  onClick={() => {
-                    onSelectTrack(track);
-                  }}
-                >
-                  Practicar esta pista
-                </Button>
-              </Stack>
-            </Card>
-          ))}
-        </SimpleGrid>
+                    Practicar esta pista
+                  </Button>
+                </Stack>
+              </Card>
+            ))}
+          </SimpleGrid>
+        )}
       </Stack>
     </Container>
   );

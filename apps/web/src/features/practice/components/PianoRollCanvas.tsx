@@ -29,6 +29,7 @@ interface PianoRollCanvasProps {
   resultsByNoteId: Record<string, NoteResult>;
   midiOffsetMs: number;
   midiTimeScale: number;
+  mainTrackColor?: string;
   lyrics?: SyncedLyricWord[];
   livePitchSample: PitchSample | null;
   livePitchSampleRef?: RefObject<PitchSample | null>;
@@ -44,6 +45,10 @@ interface PianoRollSupportingTrack {
 const PIXELS_PER_SECOND = 190;
 const PLAYHEAD_POSITION = 0.3;
 const TIME_MARK_INTERVAL_SECONDS = 1;
+const LYRICS_LANE_HEIGHT = 70;
+const LYRIC_COLLISION_PADDING = 8;
+const MIN_LYRIC_SCALE_GAP_SECONDS = 0.24;
+const MAX_LYRIC_PIXELS_PER_SECOND = 275;
 const VOICE_HISTORY_SECONDS = 240;
 const MAX_VOICE_TRAIL_POINTS = 1200;
 const VOICE_SAMPLE_MIN_GAP_MS = 110;
@@ -149,6 +154,67 @@ function getHistoryOpacity(
   );
 }
 
+function getLyricAwarePixelsPerSecond(
+  context: CanvasRenderingContext2D,
+  lyrics: SyncedLyricWord[],
+): number {
+  if (lyrics.length < 2) {
+    return PIXELS_PER_SECOND;
+  }
+
+  context.font = '700 20px Inter, sans-serif';
+
+  const scaleCandidates = lyrics.reduce<number[]>(
+    (candidates, word, index) => {
+      const nextWord = lyrics[index + 1];
+
+      if (!nextWord) {
+        return candidates;
+      }
+
+      const distanceSeconds =
+        nextWord.startSeconds - word.startSeconds;
+
+      if (distanceSeconds < MIN_LYRIC_SCALE_GAP_SECONDS) {
+        return candidates;
+      }
+
+      const requiredScaleForWord =
+        (context.measureText(word.text).width +
+          LYRIC_COLLISION_PADDING) /
+        distanceSeconds;
+
+      if (requiredScaleForWord > PIXELS_PER_SECOND) {
+        candidates.push(requiredScaleForWord);
+      }
+
+      return candidates;
+    },
+    [],
+  );
+
+  if (scaleCandidates.length === 0) {
+    return PIXELS_PER_SECOND;
+  }
+
+  scaleCandidates.sort(
+    (firstScale, secondScale) => firstScale - secondScale,
+  );
+
+  const representativeScale =
+    scaleCandidates[
+      Math.min(
+        Math.floor(scaleCandidates.length * 0.85),
+        scaleCandidates.length - 1,
+      )
+    ];
+
+  return Math.min(
+    Math.max(representativeScale, PIXELS_PER_SECOND),
+    MAX_LYRIC_PIXELS_PER_SECOND,
+  );
+}
+
 export function PianoRollCanvas({
   notes,
   supportingTracks = [],
@@ -158,6 +224,7 @@ export function PianoRollCanvas({
   resultsByNoteId,
   midiOffsetMs,
   midiTimeScale,
+  mainTrackColor = '#2f7cff',
   lyrics = [],
   livePitchSample,
   livePitchSampleRef: externalLivePitchSampleRef,
@@ -244,7 +311,11 @@ export function PianoRollCanvas({
         detectedMidi !== null && detectedMidi !== undefined;
 
       const lyricsLaneHeight =
-        lyrics.length > 0 ? 70 : 0;
+        lyrics.length > 0 ? LYRICS_LANE_HEIGHT : 0;
+      const pixelsPerSecond = getLyricAwarePixelsPerSecond(
+        context,
+        lyrics,
+      );
       const notesCanvasHeight =
         canvasHeight - lyricsLaneHeight;
       const pitchCount = Math.max(
@@ -267,10 +338,10 @@ export function PianoRollCanvas({
         (audioTime - offsetSeconds) / midiTimeScale;
 
       const firstVisibleAudioTime =
-        audioTime - playheadX / PIXELS_PER_SECOND;
+        audioTime - playheadX / pixelsPerSecond;
       const lastVisibleAudioTime =
         audioTime +
-        (canvasWidth - playheadX) / PIXELS_PER_SECOND;
+        (canvasWidth - playheadX) / pixelsPerSecond;
       const firstTimeMark =
         Math.ceil(
           firstVisibleAudioTime / TIME_MARK_INTERVAL_SECONDS,
@@ -290,7 +361,7 @@ export function PianoRollCanvas({
 
         const x =
           playheadX +
-          (time - audioTime) * PIXELS_PER_SECOND;
+          (time - audioTime) * pixelsPerSecond;
         const isMeasureMark = Math.round(time) % 5 === 0;
 
         context.beginPath();
@@ -345,10 +416,10 @@ export function PianoRollCanvas({
           const x =
             playheadX +
             (adjustedStart - audioTime) *
-              PIXELS_PER_SECOND;
+              pixelsPerSecond;
 
           const width = Math.max(
-            adjustedDuration * PIXELS_PER_SECOND,
+            adjustedDuration * pixelsPerSecond,
             3,
           );
 
@@ -389,10 +460,10 @@ export function PianoRollCanvas({
         const x =
           playheadX +
           (adjustedStart - audioTime) *
-            PIXELS_PER_SECOND;
+            pixelsPerSecond;
 
         const width = Math.max(
-          adjustedDuration * PIXELS_PER_SECOND,
+          adjustedDuration * pixelsPerSecond,
           4,
         );
 
@@ -411,7 +482,7 @@ export function PianoRollCanvas({
         } else if (result?.status === 'incorrect') {
           context.fillStyle = '#ef4444';
         } else {
-          context.fillStyle = '#2f7cff';
+          context.fillStyle = mainTrackColor;
         }
 
         context.beginPath();
@@ -496,7 +567,7 @@ export function PianoRollCanvas({
             (point.songTime * midiTimeScale +
               offsetSeconds -
               audioTime) *
-              PIXELS_PER_SECOND,
+              pixelsPerSecond,
           y: midiToY(
             point.midi,
             minMidi,
@@ -694,12 +765,16 @@ export function PianoRollCanvas({
         context.lineTo(canvasWidth, lyricsTop + 0.5);
         context.stroke();
 
+        const midiByNoteId = new Map(
+          notes.map((note) => [note.id, note.midi]),
+        );
+        const pitchSpan = Math.max(maxMidi - minMidi, 1);
         lyrics.forEach((word, wordIndex) => {
           const x =
             playheadX +
-            (word.startSeconds - audioTime) * PIXELS_PER_SECOND;
+            (word.startSeconds - audioTime) * pixelsPerSecond;
           const width = Math.max(
-            (word.durationSeconds ?? 0.35) * PIXELS_PER_SECOND,
+            (word.durationSeconds ?? 0.35) * pixelsPerSecond,
             22,
           );
 
@@ -708,7 +783,18 @@ export function PianoRollCanvas({
           }
 
           const isActive = wordIndex === activeWordIndex;
-          const y = lyricsTop + (isActive ? 15 : 21);
+          const wordMidi = word.noteId
+            ? midiByNoteId.get(word.noteId)
+            : undefined;
+          const normalizedPitch =
+            wordMidi === undefined
+              ? 0.5
+              : (wordMidi - minMidi) / pitchSpan;
+          const pitchOffset =
+            (0.5 - Math.min(Math.max(normalizedPitch, 0), 1)) *
+            18;
+          const textLeft = x + 4;
+          const y = lyricsTop + (isActive ? 21 : 27) + pitchOffset;
 
           context.fillStyle = isActive ? '#f6f7fb' : '#8f929b';
           context.font = isActive
@@ -719,7 +805,7 @@ export function PianoRollCanvas({
             ? 'rgba(49, 93, 247, 0.55)'
             : 'transparent';
           context.shadowBlur = isActive ? 16 : 0;
-          context.fillText(word.text, x + 4, y, width + 80);
+          context.fillText(word.text, textLeft, y);
           context.shadowBlur = 0;
         });
       }
@@ -788,6 +874,7 @@ export function PianoRollCanvas({
     maxMidi,
     midiOffsetMs,
     midiTimeScale,
+    mainTrackColor,
     lyrics,
     minMidi,
     notes,

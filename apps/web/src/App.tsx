@@ -13,6 +13,7 @@ import { PracticePage } from './features/practice/PracticePage';
 
 import { SynchronizationPage } from './features/synchronization/SynchronizationPage';
 import { LyricsSynchronizationPage } from './features/lyrics/LyricsSynchronizationPage';
+import { getDefaultVocalTrack } from './features/vocalTracks';
 
 type ActiveView =
   | { name: 'library' }
@@ -31,6 +32,19 @@ function App() {
     return (
       <SongLibraryPage
         onSelectSong={(song) => {
+          const defaultVocalTrack =
+            getDefaultVocalTrack(song);
+
+          if (defaultVocalTrack) {
+            setActiveView({
+              name: 'practice',
+              song,
+              track: defaultVocalTrack,
+            });
+
+            return;
+          }
+
           setActiveView({
             name: 'tracks',
             song,

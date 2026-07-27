@@ -32,6 +32,7 @@ import type {
 
 import { updateSongLyrics } from '../../api/songsApi';
 import { formatTime } from '../practice/musicUtils';
+import { getVocalTracks } from '../vocalTracks';
 
 interface LyricsSynchronizationPageProps {
   song: Song;
@@ -401,42 +402,93 @@ function fitLyricsToNotesWithAnchor(
     });
 }
 
-function extendLyricsThroughEmptyNotes(
-  lyrics: SyncedLyricWord[],
-  notes: NoteEvent[],
-): SyncedLyricWord[] {
-  const orderedLyrics = [...lyrics].sort(
-    (firstWord, secondWord) =>
-      firstWord.startSeconds - secondWord.startSeconds,
-  );
-  const orderedNotes = notes
-    .filter((note) => note.durationSeconds > 0)
-    .sort(
-      (firstNote, secondNote) =>
-        firstNote.startSeconds - secondNote.startSeconds,
-    );
-  const lastNoteEnd = orderedNotes.at(-1)?.endSeconds;
-
-  if (orderedLyrics.length === 0 || !lastNoteEnd) {
-    return lyrics;
+function createLyricWordId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return `word-${crypto.randomUUID()}`;
   }
 
-  return orderedLyrics.map((word, wordIndex) => {
-    const nextWord = orderedLyrics[wordIndex + 1];
-    const endSeconds =
-      nextWord?.startSeconds ?? lastNoteEnd;
+  return `word-${Date.now()}`;
+}
 
-    if (endSeconds <= word.startSeconds) {
-      return word;
+function getWordNoteIndex(
+  word: SyncedLyricWord,
+  notes: NoteEvent[],
+): number {
+  if (notes.length === 0) {
+    return -1;
+  }
+
+  if (word.noteId) {
+    const noteIndex = notes.findIndex(
+      (note) => note.id === word.noteId,
+    );
+
+    if (noteIndex >= 0) {
+      return noteIndex;
     }
+  }
 
-    return {
-      ...word,
-      durationSeconds: Number(
-        Math.max(endSeconds - word.startSeconds, 0.05).toFixed(3),
-      ),
-    };
-  });
+  return getNearestNoteIndex(
+    notes,
+    word.startSeconds,
+  );
+}
+
+function getWordNoteSpan(
+  word: SyncedLyricWord,
+  notes: NoteEvent[],
+): number {
+  const noteIndex = getWordNoteIndex(word, notes);
+
+  if (noteIndex < 0) {
+    return 1;
+  }
+
+  const wordEnd =
+    word.startSeconds + (word.durationSeconds ?? 0.35);
+  let lastCoveredNoteIndex = noteIndex;
+
+  for (
+    let index = noteIndex;
+    index < notes.length;
+    index += 1
+  ) {
+    if (notes[index].startSeconds < wordEnd - 0.001) {
+      lastCoveredNoteIndex = index;
+    }
+  }
+
+  return Math.max(lastCoveredNoteIndex - noteIndex + 1, 1);
+}
+
+function stretchWordAcrossNotes(
+  word: SyncedLyricWord,
+  notes: NoteEvent[],
+  noteSpan: number,
+): SyncedLyricWord {
+  const noteIndex = getWordNoteIndex(word, notes);
+
+  if (noteIndex < 0) {
+    return word;
+  }
+
+  const firstNote = notes[noteIndex];
+  const lastNote =
+    notes[
+      Math.min(
+        noteIndex + Math.max(Math.round(noteSpan), 1) - 1,
+        notes.length - 1,
+      )
+    ];
+
+  return {
+    ...word,
+    startSeconds: firstNote.startSeconds,
+    durationSeconds: Number(
+      Math.max(lastNote.endSeconds - firstNote.startSeconds, 0.05).toFixed(3),
+    ),
+    noteId: firstNote.id,
+  };
 }
 
 function getActiveLineIndex(
@@ -448,41 +500,6 @@ function getActiveLineIndex(
   );
 
   return activeIndex >= 0 ? activeIndex : 0;
-}
-
-function isLikelyVocalTrack(
-  track: SongTrack,
-): boolean {
-  const description = `${track.name} ${track.instrument ?? ''}`
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '');
-
-  return [
-    'voice',
-    'vocal',
-    'vox',
-    'lead',
-    'melody',
-    'melodia',
-    'singer',
-    'sing',
-    'choir',
-    'coro',
-    'voz',
-  ].some((term) => description.includes(term));
-}
-
-function getVocalTracks(song: Song): SongTrack[] {
-  const vocalTracks = song.tracks.filter(isLikelyVocalTrack);
-
-  if (vocalTracks.length > 0) {
-    return vocalTracks;
-  }
-
-  return song.tracks
-    .filter((track) => track.notes.length > 0)
-    .slice(0, 2);
 }
 
 function getTrackNotes(
@@ -947,6 +964,10 @@ export function LyricsSynchronizationPage({
     useState<string | null>(
       () => getVocalTracks(song)[0]?.id ?? null,
     );
+  const availableVocalTracks = useMemo(
+    () => getVocalTracks(song),
+    [song],
+  );
 
   const selectedLineIndex = lyrics.findIndex(
     (line) => line.id === selectedLineId,
@@ -960,12 +981,12 @@ export function LyricsSynchronizationPage({
   );
   const vocalTracks = useMemo(
     () =>
-      song.tracks.filter(
+      availableVocalTracks.filter(
         (track) => track.id === selectedVocalTrackId,
       ),
     [
+      availableVocalTracks,
       selectedVocalTrackId,
-      song.tracks,
     ],
   );
   const vocalNotes = useMemo(
@@ -1001,6 +1022,92 @@ export function LyricsSynchronizationPage({
             firstLine.startSeconds -
             secondLine.startSeconds,
         ),
+    );
+  };
+
+  const handleAddWordAfter = (
+    lineId: string | null,
+  ): void => {
+    setLyrics((currentLyrics) => {
+      const insertIndex = lineId
+        ? currentLyrics.findIndex((word) => word.id === lineId)
+        : currentLyrics.length - 1;
+      const safeInsertIndex =
+        insertIndex >= 0 ? insertIndex : currentLyrics.length - 1;
+      const previousWord =
+        currentLyrics[safeInsertIndex] ??
+        currentLyrics.at(-1);
+      const nextWord =
+        currentLyrics[safeInsertIndex + 1];
+      const startSeconds = Number(
+        (
+          previousWord
+            ? previousWord.startSeconds +
+              (previousWord.durationSeconds ?? 0.35)
+            : 0
+        ).toFixed(3),
+      );
+      const durationSeconds = Number(
+        Math.max(
+          nextWord
+            ? nextWord.startSeconds - startSeconds
+            : 0.35,
+          0.2,
+        ).toFixed(3),
+      );
+      const nextWordToAdd: SyncedLyricWord = {
+        id: createLyricWordId(),
+        startSeconds,
+        durationSeconds,
+        text: 'palabra',
+      };
+
+      setSelectedLineId(nextWordToAdd.id);
+
+      return [
+        ...currentLyrics.slice(0, safeInsertIndex + 1),
+        nextWordToAdd,
+        ...currentLyrics.slice(safeInsertIndex + 1),
+      ];
+    });
+  };
+
+  const handleDeleteWord = (
+    lineId: string,
+  ): void => {
+    setLyrics((currentLyrics) => {
+      const removedIndex = currentLyrics.findIndex(
+        (word) => word.id === lineId,
+      );
+      const nextLyrics = currentLyrics.filter(
+        (word) => word.id !== lineId,
+      );
+      const nextSelectedWord =
+        nextLyrics[
+          Math.min(Math.max(removedIndex, 0), nextLyrics.length - 1)
+        ];
+
+      setSelectedLineId(nextSelectedWord?.id ?? null);
+
+      return nextLyrics;
+    });
+  };
+
+  const handleStretchWord = (
+    lineId: string,
+    noteSpan: number,
+  ): void => {
+    setSelectedLineId(lineId);
+    setLyrics((currentLyrics) =>
+      currentLyrics.map((word) =>
+        word.id === lineId
+          ? stretchWordAcrossNotes(
+              word,
+              vocalNotes,
+              noteSpan,
+            )
+          : word,
+      ),
     );
   };
 
@@ -1100,14 +1207,10 @@ export function LyricsSynchronizationPage({
     setError(null);
 
     try {
-      const lyricsToSave = extendLyricsThroughEmptyNotes(
-        lyrics,
-        vocalNotes,
-      );
       const updatedSong = await updateSongLyrics(
         song.id,
         {
-          lyrics: lyricsToSave,
+          lyrics,
         },
       );
 
@@ -1295,6 +1398,7 @@ export function LyricsSynchronizationPage({
               <Group grow>
                 <Button
                   variant="default"
+                  disabled={vocalTracks.length === 0}
                   onClick={handleLoadDraft}
                 >
                   Separar y encajar
@@ -1302,7 +1406,10 @@ export function LyricsSynchronizationPage({
 
                 <Button
                   variant="light"
-                  disabled={lyrics.length === 0}
+                  disabled={
+                    lyrics.length === 0 ||
+                    vocalTracks.length === 0
+                  }
                   onClick={handleFitWordsToMidi}
                 >
                   Encajar con MIDI
@@ -1346,31 +1453,48 @@ export function LyricsSynchronizationPage({
                   {lyrics.length} palabras · {vocalNotes.length} notas
                 </Text>
 
-                {song.tracks.map((track) => (
-                  <Checkbox
-                    key={track.id}
-                    checked={selectedVocalTrackId === track.id}
-                    label={
-                      track.instrument
-                        ? `${track.name} · ${track.instrument}`
-                        : track.name
-                    }
-                    onChange={(event) => {
-                      setSelectedVocalTrackId(
-                        event.currentTarget.checked
-                          ? track.id
-                          : null,
-                      );
-                    }}
-                  />
-                ))}
+                {availableVocalTracks.length === 0 ? (
+                  <Alert color="yellow" title="Sin pistas vocales">
+                    No se ha detectado ninguna pista vocal en esta canción.
+                  </Alert>
+                ) : (
+                  availableVocalTracks.map((track) => (
+                    <Checkbox
+                      key={track.id}
+                      checked={selectedVocalTrackId === track.id}
+                      label={
+                        track.instrument
+                          ? `${track.name} · ${track.instrument}`
+                          : track.name
+                      }
+                      onChange={(event) => {
+                        setSelectedVocalTrackId(
+                          event.currentTarget.checked
+                            ? track.id
+                            : null,
+                        );
+                      }}
+                    />
+                  ))
+                )}
               </Stack>
             </Stack>
           </Paper>
 
           <Paper withBorder radius="md" p="lg">
             <Stack gap="md">
-              <Title order={4}>Palabras sincronizadas</Title>
+              <Group justify="space-between">
+                <Title order={4}>Palabras sincronizadas</Title>
+                <Button
+                  variant="light"
+                  size="xs"
+                  onClick={() => {
+                    handleAddWordAfter(selectedLineId);
+                  }}
+                >
+                  Añadir palabra
+                </Button>
+              </Group>
 
               <ScrollArea h={360}>
                 <Stack gap="xs">
@@ -1405,6 +1529,21 @@ export function LyricsSynchronizationPage({
                         }}
                       />
 
+                      <NumberInput
+                        aria-label="Notas que ocupa"
+                        value={getWordNoteSpan(line, vocalNotes)}
+                        min={1}
+                        max={Math.max(vocalNotes.length, 1)}
+                        step={1}
+                        w={84}
+                        onChange={(value) => {
+                          handleStretchWord(
+                            line.id,
+                            Number(value) || 1,
+                          );
+                        }}
+                      />
+
                       <TextInput
                         aria-label="Texto de la palabra"
                         value={line.text}
@@ -1417,6 +1556,17 @@ export function LyricsSynchronizationPage({
                           });
                         }}
                       />
+
+                      <Button
+                        variant="subtle"
+                        color="red"
+                        size="xs"
+                        onClick={() => {
+                          handleDeleteWord(line.id);
+                        }}
+                      >
+                        Borrar
+                      </Button>
                     </div>
                   ))}
                 </Stack>

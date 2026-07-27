@@ -362,7 +362,7 @@ body {
 
 .lyrics-sync-line {
   display: grid;
-  grid-template-columns: 28px 104px minmax(0, 1fr);
+  grid-template-columns: 28px 104px 84px minmax(120px, 1fr) auto;
   gap: 10px;
   align-items: center;
   width: 100%;
@@ -491,23 +491,51 @@ body {
 
 .practice-track-option {
   min-height: 32px;
+  --practice-track-color: #2f7cff;
 }
 
-.practice-track-option .mantine-Checkbox-label {
+.practice-track-option .mantine-Checkbox-label,
+.practice-track-option .mantine-Radio-label {
   max-width: 100%;
+  min-width: 0;
+  padding-left: 8px;
+}
+
+.practice-track-option .mantine-Radio-body {
+  align-items: flex-start;
+}
+
+.practice-track-option .mantine-Radio-inner {
+  margin-top: 3px;
+}
+
+.practice-track-option .mantine-Radio-radio {
+  border-color: color-mix(
+    in srgb,
+    var(--practice-track-color) 70%,
+    rgba(255, 255, 255, 0.24)
+  );
+}
+
+.practice-track-option .mantine-Radio-radio:checked {
+  border-color: var(--practice-track-color);
+  background-color: var(--practice-track-color);
+  box-shadow: 0 0 16px color-mix(
+    in srgb,
+    var(--practice-track-color) 46%,
+    transparent
+  );
 }
 
 .practice-track-label {
   min-width: 0;
   max-width: 100%;
+  white-space: normal;
 }
 
-.practice-track-dot {
-  width: 10px;
-  height: 10px;
-  flex: 0 0 10px;
-  border-radius: 999px;
-  box-shadow: 0 0 12px currentColor;
+.practice-track-label .mantine-Text-root {
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .practice-track-description {
