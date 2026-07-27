@@ -10,6 +10,7 @@ export interface PitchSample {
   detectedMidi: number | null;
   noteName: string | null;
   clarity: number;
+  intensity: number;
   centsFromNearestNote: number | null;
 }
 

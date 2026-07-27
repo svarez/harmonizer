@@ -5,8 +5,11 @@ import { uploadSongFiles } from '../config/upload.js';
 
 import {
   createSong,
+  deleteSong,
   getSong,
   listSongs,
+  updateSongLyrics,
+  updateSongSynchronization,
 } from '../services/song.service.js';
 
 import {
@@ -37,6 +40,44 @@ const createSongSchema = z.object({
 });
 
 const songIdSchema = z.uuid();
+
+const updateSongSynchronizationSchema = z.object({
+  midiOffsetMs: z.coerce
+    .number()
+    .int()
+    .min(-30000)
+    .max(30000),
+
+  midiTimeScale: z.coerce
+    .number()
+    .min(0.95)
+    .max(1.05),
+});
+
+const syncedLyricWordSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  startSeconds: z.number().min(0).max(60 * 60 * 6),
+  durationSeconds: z.number().min(0.02).max(30).optional(),
+  noteId: z.string().trim().min(1).max(120).optional(),
+  text: z.string().trim().min(1).max(120),
+});
+
+const updateSongLyricsSchema = z.object({
+  lyrics: z
+    .array(syncedLyricWordSchema)
+    .max(5000)
+    .transform((lyrics) =>
+      lyrics
+        .map((line) => ({
+          ...line,
+          text: line.text.trim(),
+        }))
+        .sort(
+          (firstLine, secondLine) =>
+            firstLine.startSeconds - secondLine.startSeconds,
+        ),
+    ),
+});
 
 songsRouter.get(
   '/',
@@ -121,6 +162,97 @@ songsRouter.post(
         uploadedFiles,
       );
 
+      next(error);
+    }
+  },
+);
+
+songsRouter.delete(
+  '/:songId',
+  async (request, response, next) => {
+    try {
+      const songId = songIdSchema.parse(
+        request.params.songId,
+      );
+
+      const deleted = await deleteSong(songId);
+
+      if (!deleted) {
+        response.status(404).json({
+          message: 'Canción no encontrada',
+        });
+
+        return;
+      }
+
+      response.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+songsRouter.patch(
+  '/:songId/synchronization',
+  async (request, response, next) => {
+    try {
+      const songId = songIdSchema.parse(
+        request.params.songId,
+      );
+
+      const body =
+        updateSongSynchronizationSchema.parse(
+          request.body,
+        );
+
+      const song =
+        await updateSongSynchronization(
+          songId,
+          body,
+        );
+
+      if (!song) {
+        response.status(404).json({
+          message: 'Canción no encontrada',
+        });
+
+        return;
+      }
+
+      response.json(song);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+songsRouter.patch(
+  '/:songId/lyrics',
+  async (request, response, next) => {
+    try {
+      const songId = songIdSchema.parse(
+        request.params.songId,
+      );
+
+      const body = updateSongLyricsSchema.parse(
+        request.body,
+      );
+
+      const song = await updateSongLyrics(
+        songId,
+        body,
+      );
+
+      if (!song) {
+        response.status(404).json({
+          message: 'Canción no encontrada',
+        });
+
+        return;
+      }
+
+      response.json(song);
+    } catch (error) {
       next(error);
     }
   },

@@ -1,5 +1,7 @@
 import type {
   Song,
+  SongLyricsUpdate,
+  SongSynchronization,
   SongSummary,
 } from '@harmonizer/shared';
 
@@ -48,4 +50,57 @@ export async function getSong(
   );
 
   return parseResponse<Song>(response);
+}
+
+export async function updateSongSynchronization(
+  songId: string,
+  synchronization: SongSynchronization,
+): Promise<Song> {
+  const response = await fetch(
+    `/api/songs/${encodeURIComponent(songId)}/synchronization`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(synchronization),
+    },
+  );
+
+  return parseResponse<Song>(response);
+}
+
+export async function updateSongLyrics(
+  songId: string,
+  lyricsUpdate: SongLyricsUpdate,
+): Promise<Song> {
+  const response = await fetch(
+    `/api/songs/${encodeURIComponent(songId)}/lyrics`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(lyricsUpdate),
+    },
+  );
+
+  return parseResponse<Song>(response);
+}
+
+export async function deleteSong(
+  songId: string,
+): Promise<void> {
+  const response = await fetch(
+    `/api/songs/${encodeURIComponent(songId)}`,
+    {
+      method: 'DELETE',
+    },
+  );
+
+  if (response.status === 204) {
+    return;
+  }
+
+  await parseResponse<never>(response);
 }

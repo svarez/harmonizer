@@ -1,42 +1,80 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, readdir, rename, rm, writeFile, } from 'node:fs/promises';
-import { SONGS_DIRECTORY } from '../config/storage.js';
-import { parseMidiFile } from './midi.service.js';
+import { mkdir, rename, rm, } from 'node:fs/promises';
+import { SONGS_DIRECTORY, } from '../config/storage.js';
+import { prisma, } from '../lib/prisma.js';
+import { parseMidiFile, } from './midi.service.js';
+import { notesFromJson, notesToJson, } from './note-json.service.js';
 export async function createSong(input) {
     const songId = randomUUID();
     const songDirectory = path.join(SONGS_DIRECTORY, songId);
+    const audioDestination = path.join(songDirectory, 'audio.mp3');
+    const midiDestination = path.join(songDirectory, 'song.mid');
+    const audioPath = path.posix.join('songs', songId, 'audio.mp3');
+    const midiPath = path.posix.join('songs', songId, 'song.mid');
     await mkdir(songDirectory, {
         recursive: true,
     });
-    const audioDestination = path.join(songDirectory, 'audio.mp3');
-    const midiDestination = path.join(songDirectory, 'song.mid');
     try {
         /*
-         * Analizamos el MIDI antes de moverlo.
-         * Si el archivo es inválido, no se crea la canción.
+         * Se analiza antes de almacenar la canción.
+         * Un MIDI inválido no debe generar registros.
          */
         const parsedMidi = await parseMidiFile(input.midiFile.path);
+        /*
+         * Los archivos definitivos se guardan en storage.
+         */
         await Promise.all([
             rename(input.audioFile.path, audioDestination),
             rename(input.midiFile.path, midiDestination),
         ]);
-        const song = {
-            id: songId,
-            title: input.title,
-            artist: input.artist || undefined,
-            audioUrl: `/media/songs/${songId}/audio.mp3`,
-            durationSeconds: parsedMidi.durationSeconds,
-            detectedMidiInitialSilenceMs: Math.round(parsedMidi.detectedInitialSilenceSeconds * 1000),
-            midiOffsetMs: input.midiOffsetMs,
-            tracks: parsedMidi.tracks,
-            createdAt: new Date().toISOString(),
-        };
-        await writeFile(path.join(songDirectory, 'song.json'), JSON.stringify(song, null, 2), 'utf8');
-        return song;
+        /*
+         * Metadatos y pistas se guardan en una única
+         * operación anidada de Prisma.
+         */
+        const record = await prisma.song.create({
+            data: {
+                id: songId,
+                title: input.title,
+                artist: input.artist,
+                audioPath,
+                midiPath,
+                durationSeconds: parsedMidi.durationSeconds,
+                midiOffsetMs: input.midiOffsetMs,
+                midiTimeScale: 1,
+                lyrics: [],
+                tracks: {
+                    create: parsedMidi.tracks.map((track, position) => ({
+                        position,
+                        name: track.name,
+                        instrument: track.instrument,
+                        minMidi: track.minMidi,
+                        maxMidi: track.maxMidi,
+                        notes: notesToJson(track.notes),
+                    })),
+                },
+            },
+            include: {
+                tracks: {
+                    orderBy: {
+                        position: 'asc',
+                    },
+                },
+            },
+        });
+        return databaseSongToSong(record);
     }
     catch (error) {
+        /*
+         * Si falla Prisma después de mover los archivos,
+         * eliminamos tanto el posible registro como la carpeta.
+         */
         await Promise.allSettled([
+            prisma.song.delete({
+                where: {
+                    id: songId,
+                },
+            }),
             rm(songDirectory, {
                 recursive: true,
                 force: true,
@@ -52,82 +90,208 @@ export async function createSong(input) {
     }
 }
 export async function listSongs() {
-    const entries = await readdir(SONGS_DIRECTORY, {
-        withFileTypes: true,
+    const records = await prisma.song.findMany({
+        orderBy: {
+            title: 'asc',
+        },
+        select: {
+            id: true,
+            title: true,
+            artist: true,
+            audioPath: true,
+            durationSeconds: true,
+            midiOffsetMs: true,
+            midiTimeScale: true,
+            createdAt: true,
+            _count: {
+                select: {
+                    tracks: true,
+                },
+            },
+        },
     });
-    const songs = await Promise.all(entries
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => readSongFile(entry.name)));
-    return songs
-        .map(songToSummary)
-        .sort((firstSong, secondSong) => {
-        return firstSong.title.localeCompare(secondSong.title);
-    });
+    return records.map((record) => ({
+        id: record.id,
+        title: record.title,
+        artist: record.artist ?? undefined,
+        audioUrl: storagePathToPublicUrl(record.audioPath),
+        durationSeconds: record.durationSeconds,
+        midiOffsetMs: record.midiOffsetMs,
+        midiTimeScale: record.midiTimeScale,
+        trackCount: record._count.tracks,
+        createdAt: record.createdAt.toISOString(),
+    }));
 }
 export async function getSong(songId) {
-    try {
-        return await readSongFile(songId);
+    const record = await prisma.song.findUnique({
+        where: {
+            id: songId,
+        },
+        include: {
+            tracks: {
+                orderBy: {
+                    position: 'asc',
+                },
+            },
+        },
+    });
+    if (!record) {
+        return null;
     }
-    catch (error) {
-        if (error instanceof Error &&
-            'code' in error &&
-            error.code === 'ENOENT') {
-            return null;
-        }
-        throw error;
-    }
+    return databaseSongToSong(record);
 }
-async function readSongFile(songId) {
-    const metadataPath = path.join(SONGS_DIRECTORY, songId, 'song.json');
-    const contents = await readFile(metadataPath, 'utf8');
-    return normalizeLegacySongTiming(JSON.parse(contents));
-}
-function getFirstNoteStartSeconds(notes) {
-    return notes.reduce((earliestStartSeconds, note) => Math.min(earliestStartSeconds, note.startSeconds), Number.POSITIVE_INFINITY);
-}
-function normalizeLegacySongTiming(song) {
-    if (song.detectedMidiInitialSilenceMs !==
-        undefined ||
-        song.midiOffsetMs !== 0) {
-        return song;
+export async function deleteSong(songId) {
+    const existingSong = await prisma.song.findUnique({
+        where: {
+            id: songId,
+        },
+        select: {
+            id: true,
+        },
+    });
+    if (!existingSong) {
+        return false;
     }
-    const detectedInitialSilenceSeconds = song.tracks.reduce((earliestStartSeconds, track) => Math.min(earliestStartSeconds, getFirstNoteStartSeconds(track.notes)), Number.POSITIVE_INFINITY);
-    if (!Number.isFinite(detectedInitialSilenceSeconds) ||
-        detectedInitialSilenceSeconds <= 0) {
-        return {
-            ...song,
-            detectedMidiInitialSilenceMs: 0,
-        };
+    await prisma.song.delete({
+        where: {
+            id: songId,
+        },
+    });
+    await rm(path.join(SONGS_DIRECTORY, songId), {
+        recursive: true,
+        force: true,
+    });
+    return true;
+}
+export async function updateSongSynchronization(songId, input) {
+    const existingSong = await prisma.song.findUnique({
+        where: {
+            id: songId,
+        },
+        select: {
+            id: true,
+        },
+    });
+    if (!existingSong) {
+        return null;
     }
+    const record = await prisma.song.update({
+        where: {
+            id: songId,
+        },
+        data: {
+            midiOffsetMs: input.midiOffsetMs,
+            midiTimeScale: input.midiTimeScale,
+        },
+        include: {
+            tracks: {
+                orderBy: {
+                    position: 'asc',
+                },
+            },
+        },
+    });
+    return databaseSongToSong(record);
+}
+export async function updateSongLyrics(songId, input) {
+    const existingSong = await prisma.song.findUnique({
+        where: {
+            id: songId,
+        },
+        select: {
+            id: true,
+        },
+    });
+    if (!existingSong) {
+        return null;
+    }
+    const record = await prisma.song.update({
+        where: {
+            id: songId,
+        },
+        data: {
+            lyrics: lyricsToJson(input.lyrics),
+        },
+        include: {
+            tracks: {
+                orderBy: {
+                    position: 'asc',
+                },
+            },
+        },
+    });
+    return databaseSongToSong(record);
+}
+function databaseSongToSong(record) {
     return {
-        ...song,
-        durationSeconds: Math.max(song.durationSeconds -
-            detectedInitialSilenceSeconds, 0),
-        detectedMidiInitialSilenceMs: Math.round(detectedInitialSilenceSeconds * 1000),
-        tracks: song.tracks.map((track) => ({
-            ...track,
-            notes: track.notes.map((note) => {
-                const startSeconds = Math.max(note.startSeconds -
-                    detectedInitialSilenceSeconds, 0);
-                return {
-                    ...note,
-                    startSeconds,
-                    endSeconds: startSeconds + note.durationSeconds,
-                };
-            }),
+        id: record.id,
+        title: record.title,
+        artist: record.artist ?? undefined,
+        audioUrl: storagePathToPublicUrl(record.audioPath),
+        durationSeconds: record.durationSeconds,
+        midiOffsetMs: record.midiOffsetMs,
+        midiTimeScale: record.midiTimeScale,
+        lyrics: lyricsFromJson(record.lyrics),
+        createdAt: record.createdAt.toISOString(),
+        tracks: record.tracks.map((track) => ({
+            id: track.id,
+            name: track.name,
+            instrument: track.instrument ?? undefined,
+            minMidi: track.minMidi,
+            maxMidi: track.maxMidi,
+            notes: notesFromJson(track.notes),
         })),
     };
 }
-function songToSummary(song) {
-    return {
-        id: song.id,
-        title: song.title,
-        artist: song.artist,
-        audioUrl: song.audioUrl,
-        durationSeconds: song.durationSeconds,
-        detectedMidiInitialSilenceMs: song.detectedMidiInitialSilenceMs,
-        midiOffsetMs: song.midiOffsetMs,
-        trackCount: song.tracks.length,
-        createdAt: song.createdAt,
-    };
+function lyricsToJson(lyrics) {
+    return lyrics.map((line) => ({
+        id: line.id,
+        startSeconds: line.startSeconds,
+        durationSeconds: line.durationSeconds,
+        noteId: line.noteId,
+        text: line.text,
+    }));
+}
+function lyricsFromJson(lyrics) {
+    if (!Array.isArray(lyrics)) {
+        return [];
+    }
+    return lyrics
+        .map((line, index) => {
+        if (!line ||
+            typeof line !== 'object' ||
+            Array.isArray(line)) {
+            return null;
+        }
+        const value = line;
+        const startSeconds = Number(value.startSeconds);
+        const text = typeof value.text === 'string'
+            ? value.text.trim()
+            : '';
+        const durationSeconds = Number(value.durationSeconds);
+        if (!Number.isFinite(startSeconds) || !text) {
+            return null;
+        }
+        const lyricWord = {
+            id: typeof value.id === 'string' && value.id
+                ? value.id
+                : `lyric-${index}`,
+            startSeconds,
+            text,
+        };
+        if (Number.isFinite(durationSeconds)) {
+            lyricWord.durationSeconds = durationSeconds;
+        }
+        if (typeof value.noteId === 'string' &&
+            value.noteId) {
+            lyricWord.noteId = value.noteId;
+        }
+        return lyricWord;
+    })
+        .filter((line) => Boolean(line))
+        .sort((firstLine, secondLine) => firstLine.startSeconds - secondLine.startSeconds);
+}
+function storagePathToPublicUrl(storagePath) {
+    const normalizedPath = storagePath.replaceAll('\\', '/');
+    return `/media/${normalizedPath}`;
 }

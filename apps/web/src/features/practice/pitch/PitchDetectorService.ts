@@ -13,6 +13,31 @@ import type { PitchSample } from '../types';
 
 type PitchCallback = (sample: PitchSample) => void;
 
+function calculateRootMeanSquare(
+  samples: Float32Array<ArrayBuffer>,
+): number {
+  let sum = 0;
+
+  for (
+    let sampleIndex = 0;
+    sampleIndex < samples.length;
+    sampleIndex += 1
+  ) {
+    sum += samples[sampleIndex] ** 2;
+  }
+
+  return Math.sqrt(sum / samples.length);
+}
+
+function normalizeIntensity(
+  rootMeanSquare: number,
+): number {
+  return Math.min(
+    Math.max(rootMeanSquare / 0.14, 0),
+    1,
+  );
+}
+
 export class PitchDetectorService {
   private audioContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
@@ -85,6 +110,10 @@ export class PitchDetectorService {
         this.inputBuffer,
       );
 
+      const intensity = normalizeIntensity(
+        calculateRootMeanSquare(this.inputBuffer),
+      );
+
       const [frequency, clarity] =
         this.detector.findPitch(
           this.inputBuffer,
@@ -104,6 +133,7 @@ export class PitchDetectorService {
           detectedMidi: null,
           noteName: null,
           clarity,
+          intensity,
           centsFromNearestNote: null,
         });
       } else {
@@ -116,6 +146,7 @@ export class PitchDetectorService {
           detectedMidi,
           noteName: midiToNoteName(detectedMidi),
           clarity,
+          intensity,
           centsFromNearestNote:
             centsFromNearestMidiNote(detectedMidi),
         });

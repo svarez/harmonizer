@@ -15,13 +15,17 @@ import { formatTime } from '../../practice/musicUtils';
 interface SongCardProps {
   song: SongSummary;
   loading: boolean;
+  deleting: boolean;
   onOpen: () => void;
+  onDelete: () => void;
 }
 
 export function SongCard({
   song,
   loading,
+  deleting,
   onOpen,
+  onDelete,
 }: SongCardProps) {
   return (
     <Card
@@ -56,12 +60,25 @@ export function SongCard({
           </Badge>
         </Group>
 
-        <Button
-          loading={loading}
-          onClick={onOpen}
-        >
-          Seleccionar canción
-        </Button>
+        <Group grow>
+          <Button
+            loading={loading}
+            disabled={deleting}
+            onClick={onOpen}
+          >
+            Seleccionar canción
+          </Button>
+
+          <Button
+            variant="light"
+            color="red"
+            loading={deleting}
+            disabled={loading}
+            onClick={onDelete}
+          >
+            Eliminar
+          </Button>
+        </Group>
       </Stack>
     </Card>
   );

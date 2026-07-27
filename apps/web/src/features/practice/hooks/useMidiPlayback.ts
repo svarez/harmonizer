@@ -14,6 +14,7 @@ interface UseMidiPlaybackOptions {
   notes: NoteEvent[];
   getCurrentTime: () => number;
   midiOffsetMs: number;
+  midiTimeScale: number;
 }
 
 const LOOKAHEAD_SECONDS = 0.25;
@@ -27,6 +28,7 @@ export function useMidiPlayback({
   notes,
   getCurrentTime,
   midiOffsetMs,
+  midiTimeScale,
 }: UseMidiPlaybackOptions) {
   const audioContextRef =
     useRef<AudioContext | null>(null);
@@ -67,7 +69,7 @@ export function useMidiPlayback({
 
   useEffect(() => {
     resetScheduler();
-  }, [notes, midiOffsetMs, resetScheduler]);
+  }, [notes, midiOffsetMs, midiTimeScale, resetScheduler]);
 
   useEffect(() => {
     if (!enabled || !isPlaying) {
@@ -105,9 +107,9 @@ export function useMidiPlayback({
 
       for (const note of notes) {
         const audibleStart =
-          note.startSeconds + offsetSeconds;
+          note.startSeconds * midiTimeScale + offsetSeconds;
         const audibleEnd =
-          note.endSeconds + offsetSeconds;
+          note.endSeconds * midiTimeScale + offsetSeconds;
 
         if (
           audibleEnd < songTime ||
@@ -193,6 +195,7 @@ export function useMidiPlayback({
     getCurrentTime,
     isPlaying,
     midiOffsetMs,
+    midiTimeScale,
     notes,
     prepare,
     resetScheduler,

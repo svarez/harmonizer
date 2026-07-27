@@ -10,6 +10,7 @@ import {
 import type {
   Song,
   SongSummary,
+  SyncedLyricWord,
 } from '@harmonizer/shared';
 
 import type {
@@ -39,6 +40,15 @@ interface CreateSongInput {
   midiOffsetMs: number;
   audioFile: Express.Multer.File;
   midiFile: Express.Multer.File;
+}
+
+interface UpdateSongSynchronizationInput {
+  midiOffsetMs: number;
+  midiTimeScale: number;
+}
+
+interface UpdateSongLyricsInput {
+  lyrics: SyncedLyricWord[];
 }
 
 type SongWithTracks =
@@ -126,6 +136,9 @@ export async function createSong(
         midiOffsetMs:
           input.midiOffsetMs,
 
+        midiTimeScale: 1,
+        lyrics: [],
+
         tracks: {
           create: parsedMidi.tracks.map(
             (track, position) => ({
@@ -201,6 +214,7 @@ export async function listSongs(): Promise<
         audioPath: true,
         durationSeconds: true,
         midiOffsetMs: true,
+        midiTimeScale: true,
         createdAt: true,
 
         _count: {
@@ -227,6 +241,9 @@ export async function listSongs(): Promise<
 
     midiOffsetMs:
       record.midiOffsetMs,
+
+    midiTimeScale:
+      record.midiTimeScale,
 
     trackCount:
       record._count.tracks,
@@ -261,6 +278,125 @@ export async function getSong(
   return databaseSongToSong(record);
 }
 
+export async function deleteSong(
+  songId: string,
+): Promise<boolean> {
+  const existingSong =
+    await prisma.song.findUnique({
+      where: {
+        id: songId,
+      },
+
+      select: {
+        id: true,
+      },
+    });
+
+  if (!existingSong) {
+    return false;
+  }
+
+  await prisma.song.delete({
+    where: {
+      id: songId,
+    },
+  });
+
+  await rm(
+    path.join(
+      SONGS_DIRECTORY,
+      songId,
+    ),
+    {
+      recursive: true,
+      force: true,
+    },
+  );
+
+  return true;
+}
+
+export async function updateSongSynchronization(
+  songId: string,
+  input: UpdateSongSynchronizationInput,
+): Promise<Song | null> {
+  const existingSong =
+    await prisma.song.findUnique({
+      where: {
+        id: songId,
+      },
+
+      select: {
+        id: true,
+      },
+    });
+
+  if (!existingSong) {
+    return null;
+  }
+
+  const record = await prisma.song.update({
+    where: {
+      id: songId,
+    },
+
+    data: {
+      midiOffsetMs: input.midiOffsetMs,
+      midiTimeScale: input.midiTimeScale,
+    },
+
+    include: {
+      tracks: {
+        orderBy: {
+          position: 'asc',
+        },
+      },
+    },
+  });
+
+  return databaseSongToSong(record);
+}
+
+export async function updateSongLyrics(
+  songId: string,
+  input: UpdateSongLyricsInput,
+): Promise<Song | null> {
+  const existingSong =
+    await prisma.song.findUnique({
+      where: {
+        id: songId,
+      },
+
+      select: {
+        id: true,
+      },
+    });
+
+  if (!existingSong) {
+    return null;
+  }
+
+  const record = await prisma.song.update({
+    where: {
+      id: songId,
+    },
+
+    data: {
+      lyrics: lyricsToJson(input.lyrics),
+    },
+
+    include: {
+      tracks: {
+        orderBy: {
+          position: 'asc',
+        },
+      },
+    },
+  });
+
+  return databaseSongToSong(record);
+}
+
 function databaseSongToSong(
   record: SongWithTracks,
 ): Song {
@@ -281,6 +417,11 @@ function databaseSongToSong(
     midiOffsetMs:
       record.midiOffsetMs,
 
+    midiTimeScale:
+      record.midiTimeScale,
+
+    lyrics: lyricsFromJson(record.lyrics),
+
     createdAt:
       record.createdAt.toISOString(),
 
@@ -300,6 +441,83 @@ function databaseSongToSong(
       }),
     ),
   };
+}
+
+function lyricsToJson(
+  lyrics: SyncedLyricWord[],
+): Prisma.InputJsonArray {
+  return lyrics.map((line) => ({
+    id: line.id,
+    startSeconds: line.startSeconds,
+    durationSeconds: line.durationSeconds,
+    noteId: line.noteId,
+    text: line.text,
+  }));
+}
+
+function lyricsFromJson(
+  lyrics: Prisma.JsonValue,
+): SyncedLyricWord[] {
+  if (!Array.isArray(lyrics)) {
+    return [];
+  }
+
+  return lyrics
+    .map((line, index) => {
+      if (
+        !line ||
+        typeof line !== 'object' ||
+        Array.isArray(line)
+      ) {
+        return null;
+      }
+
+      const value =
+        line as Record<string, unknown>;
+      const startSeconds = Number(
+        value.startSeconds,
+      );
+      const text =
+        typeof value.text === 'string'
+          ? value.text.trim()
+          : '';
+      const durationSeconds = Number(
+        value.durationSeconds,
+      );
+
+      if (!Number.isFinite(startSeconds) || !text) {
+        return null;
+      }
+
+      const lyricWord: SyncedLyricWord = {
+        id:
+          typeof value.id === 'string' && value.id
+            ? value.id
+            : `lyric-${index}`,
+        startSeconds,
+        text,
+      };
+
+      if (Number.isFinite(durationSeconds)) {
+        lyricWord.durationSeconds = durationSeconds;
+      }
+
+      if (
+        typeof value.noteId === 'string' &&
+        value.noteId
+      ) {
+        lyricWord.noteId = value.noteId;
+      }
+
+      return lyricWord;
+    })
+    .filter((line): line is SyncedLyricWord =>
+      Boolean(line),
+    )
+    .sort(
+      (firstLine, secondLine) =>
+        firstLine.startSeconds - secondLine.startSeconds,
+    );
 }
 
 function storagePathToPublicUrl(

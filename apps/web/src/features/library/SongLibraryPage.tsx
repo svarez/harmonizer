@@ -22,6 +22,7 @@ import type {
 } from '@harmonizer/shared';
 
 import {
+  deleteSong,
   getSong,
   getSongs,
 } from '../../api/songsApi';
@@ -43,6 +44,9 @@ export function SongLibraryPage({
     useState(true);
 
   const [openingSongId, setOpeningSongId] =
+    useState<string | null>(null);
+
+  const [deletingSongId, setDeletingSongId] =
     useState<string | null>(null);
 
   const [error, setError] =
@@ -127,6 +131,39 @@ export function SongLibraryPage({
     }
   };
 
+  const handleDeleteSong = async (
+    songSummary: SongSummary,
+  ): Promise<void> => {
+    const confirmed = window.confirm(
+      `¿Eliminar "${songSummary.title}" de la biblioteca? Esta acción también borrará sus archivos MP3 y MIDI.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingSongId(songSummary.id);
+    setError(null);
+
+    try {
+      await deleteSong(songSummary.id);
+
+      setSongs((currentSongs) =>
+        currentSongs.filter(
+          (song) => song.id !== songSummary.id,
+        ),
+      );
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'No se ha podido eliminar la canción',
+      );
+    } finally {
+      setDeletingSongId(null);
+    }
+  };
+
   return (
     <Container size="xl" py="xl">
       <Stack gap="xl">
@@ -202,8 +239,14 @@ export function SongLibraryPage({
                 loading={
                   openingSongId === song.id
                 }
+                deleting={
+                  deletingSongId === song.id
+                }
                 onOpen={() => {
                   void handleOpenSong(song);
+                }}
+                onDelete={() => {
+                  void handleDeleteSong(song);
                 }}
               />
             ))}

@@ -1,7 +1,17 @@
 :root {
   font-family: Inter, system-ui, sans-serif;
   color-scheme: dark;
-  background: #09090b;
+  background: #0b0c0f;
+  --surface-page: #0b0c0f;
+  --surface-card: #15171c;
+  --surface-card-strong: #0f1116;
+  --surface-control: #191b21;
+  --surface-input: #1f2229;
+  --border-soft: rgba(58, 59, 66, 0.72);
+  --border-subtle: rgba(58, 59, 66, 0.42);
+  --text-primary: #e4e4e7;
+  --text-secondary: #92939a;
+  --accent-blue: #2f65f7;
 }
 
 html,
@@ -14,6 +24,608 @@ body,
 body {
   min-width: 320px;
   background:
-    radial-gradient(circle at top, #18181b 0%, #09090b 55%),
-    #09090b;
+    radial-gradient(circle at 55% 0%, rgba(38, 50, 77, 0.18), transparent 42%),
+    var(--surface-page);
+  color: var(--text-primary);
+}
+
+.practice-shell {
+  max-width: 1780px;
+}
+
+.practice-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 2px 36px 0;
+}
+
+.practice-back {
+  height: 30px;
+  padding-inline: 0;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.practice-kicker {
+  margin-top: 6px;
+  letter-spacing: 0;
+}
+
+.practice-title {
+  margin-top: 2px;
+  font-size: 2.25rem;
+  font-weight: 650;
+  line-height: 1.05;
+}
+
+.practice-subtitle {
+  margin-top: 4px;
+  color: var(--text-secondary);
+}
+
+.practice-header__actions {
+  padding-top: 6px;
+}
+
+.practice-save-button,
+.practice-advanced-button,
+.practice-menu-button {
+  height: 42px;
+  border-radius: 8px;
+  font-weight: 650;
+}
+
+.practice-save-button {
+  min-width: 186px;
+  background: #182364;
+  color: #f7f8ff;
+  box-shadow: 0 8px 26px rgba(21, 37, 122, 0.22);
+}
+
+.practice-menu-button {
+  width: 42px;
+  padding: 0;
+  border-color: var(--border-subtle);
+  background: rgba(13, 15, 20, 0.7);
+  color: var(--text-secondary);
+  font-size: 22px;
+}
+
+.practice-advanced-button {
+  min-width: 202px;
+  border-color: var(--border-soft);
+  background: rgba(16, 18, 23, 0.82);
+  color: var(--text-primary);
+}
+
+.practice-roll-card {
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 40%),
+    var(--surface-card);
+  border: 1px solid var(--border-soft);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.25);
+}
+
+.practice-roll-layout {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) 196px;
+  gap: 16px;
+  align-items: stretch;
+  min-height: 330px;
+}
+
+.practice-piano-keys {
+  position: relative;
+  width: 98px;
+  height: 330px;
+  align-self: stretch;
+  overflow: hidden;
+  padding-left: 12px;
+  border-radius: 4px;
+}
+
+.practice-piano-key {
+  position: absolute;
+  left: 12px;
+  display: flex;
+  min-height: 0;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 7px;
+  border-bottom: 1px solid rgba(7, 8, 10, 0.68);
+  box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.18);
+}
+
+.practice-piano-key--white {
+  width: 86px;
+  z-index: 1;
+  background: linear-gradient(90deg, #fafafa 0%, #dfe2e8 68%, #c0c5ce 100%);
+}
+
+.practice-piano-key--black {
+  z-index: 2;
+  width: 48px;
+  min-height: 10px;
+  max-height: 18px;
+  transform: translateY(-50%);
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(90deg, #050609 0%, #11141a 70%, #2a2f39 100%);
+  box-shadow:
+    inset -1px 0 0 rgba(255, 255, 255, 0.08),
+    0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+.practice-piano-key--white .mantine-Text-root {
+  position: relative;
+  z-index: 3;
+  margin-left: auto;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: rgba(239, 241, 245, 0.78);
+  color: #20242b;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.practice-piano-key--black .mantine-Text-root {
+  color: #c9ccd4;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.practice-roll-legend {
+  padding: 24px 20px 12px 0;
+}
+
+.practice-roll-legend__item {
+  min-width: 0;
+}
+
+.practice-card,
+.practice-player {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 46%),
+    var(--surface-card);
+  border: 1px solid var(--border-soft);
+  box-shadow: none;
+}
+
+.practice-player {
+  min-height: 94px;
+  padding-inline: 24px;
+}
+
+.practice-player__row {
+  min-height: 76px;
+  gap: 28px;
+}
+
+.practice-player__timeline {
+  flex: 1 1 500px;
+  min-width: 320px;
+}
+
+.practice-player__slider {
+  flex: 1;
+  min-width: 180px;
+}
+
+.practice-player__slider .mantine-Slider-track {
+  height: 4px;
+}
+
+.practice-player__slider .mantine-Slider-bar {
+  background: #315df7;
+}
+
+.practice-player__time {
+  color: var(--text-primary);
+  font-size: 16px;
+  white-space: nowrap;
+}
+
+.practice-player__time span:first-child,
+.practice-player__time span:last-child {
+  color: #f6f7fb;
+}
+
+.practice-button {
+  height: 40px;
+  border-radius: 8px;
+  font-weight: 650;
+}
+
+.practice-button--play {
+  position: relative;
+  display: grid;
+  width: 68px;
+  height: 68px;
+  min-width: 68px;
+  place-items: center;
+  padding: 0;
+  border-radius: 999px;
+  background: #315df7;
+  box-shadow: 0 8px 22px rgba(47, 101, 247, 0.24);
+}
+
+.practice-button--play .mantine-Button-inner,
+.practice-button--play .mantine-Button-label {
+  display: grid;
+  place-items: center;
+}
+
+.practice-play-icon {
+  display: block;
+}
+
+.practice-play-icon--play {
+  width: 0;
+  height: 0;
+  margin-left: 5px;
+  border-top: 13px solid transparent;
+  border-bottom: 13px solid transparent;
+  border-left: 19px solid #fff;
+}
+
+.practice-play-icon--pause {
+  width: 20px;
+  height: 25px;
+  border-right: 7px solid #fff;
+  border-left: 7px solid #fff;
+}
+
+.practice-button--secondary {
+  background: var(--surface-control);
+  border-color: var(--border-soft);
+  color: var(--text-primary);
+}
+
+.practice-button--compact {
+  min-width: 54px;
+  padding-inline: 12px;
+}
+
+.practice-button--icon {
+  width: 54px;
+  padding: 0;
+  font-size: 22px;
+}
+
+.practice-player__source,
+.practice-player__speed,
+.practice-player__repeat {
+  padding-left: 28px;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.practice-source-toggle {
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  background: var(--surface-control);
+  border-radius: 8px;
+}
+
+.practice-player__mix {
+  min-width: 172px;
+}
+
+.practice-player__mix-icon {
+  width: 26px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.practice-player__volume {
+  flex: 1;
+  min-width: 120px;
+}
+
+.practice-player__volume .mantine-Slider-track {
+  height: 3px;
+}
+
+.practice-player__volume--mic .mantine-Slider-bar {
+  background: #8b5cf6;
+}
+
+.practice-speed-input {
+  width: 104px;
+}
+
+.practice-speed-input .mantine-Input-input {
+  height: 44px;
+  border-color: var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-control);
+  color: var(--text-primary);
+  text-align: center;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.practice-lower-grid {
+  display: grid;
+  grid-template-columns: minmax(420px, 0.86fr) minmax(680px, 1.82fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.lyrics-sync-grid {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.86fr) minmax(560px, 1.14fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.lyrics-sync-line {
+  display: grid;
+  grid-template-columns: 28px 104px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-card-strong);
+}
+
+.lyrics-sync-line--selected {
+  border-color: rgba(49, 93, 247, 0.72);
+  background: rgba(49, 93, 247, 0.12);
+}
+
+.practice-microphone {
+  align-self: start;
+}
+
+.practice-microphone {
+  min-height: 344px;
+}
+
+.practice-microphone__hero {
+  min-height: 118px;
+}
+
+.practice-microphone__icon {
+  position: relative;
+  display: grid;
+  width: 116px;
+  height: 116px;
+  flex: 0 0 116px;
+  place-items: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.04), transparent 68%);
+}
+
+.practice-microphone__icon span {
+  position: relative;
+  width: 24px;
+  height: 38px;
+  border: 4px solid #f3f4f8;
+  border-radius: 999px;
+}
+
+.practice-microphone__icon span::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -18px;
+  width: 46px;
+  height: 28px;
+  border: 4px solid #f3f4f8;
+  border-top: 0;
+  border-radius: 0 0 999px 999px;
+  transform: translateX(-50%);
+}
+
+.practice-microphone__icon span::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -30px;
+  width: 4px;
+  height: 20px;
+  background: #f3f4f8;
+  transform: translateX(-50%);
+}
+
+.practice-microphone__copy {
+  min-width: 0;
+}
+
+.practice-microphone__stats {
+  padding-block: 18px 12px;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.practice-microphone__stat + .practice-microphone__stat {
+  padding-left: 14px;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.practice-microphone__button {
+  width: 198px;
+  background: #315df7;
+}
+
+.practice-microphone__octave {
+  gap: 16px;
+  color: #c1c3cc;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.practice-settings {
+  background: #18191e;
+  min-height: 344px;
+}
+
+.practice-settings__grid {
+  display: grid;
+  grid-template-columns: minmax(420px, 1fr) minmax(330px, 0.82fr);
+  gap: 40px;
+  height: 100%;
+}
+
+.practice-sync-panel {
+  padding-left: 40px;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.practice-section-label {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0;
+}
+
+.practice-divider {
+  border-color: var(--border-subtle);
+}
+
+.practice-track-option {
+  min-height: 32px;
+}
+
+.practice-track-option .mantine-Checkbox-label {
+  max-width: 100%;
+}
+
+.practice-track-label {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.practice-track-dot {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  border-radius: 999px;
+  box-shadow: 0 0 12px currentColor;
+}
+
+.practice-track-description {
+  color: var(--text-secondary);
+}
+
+.practice-track-badge {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border: 1px solid rgba(47, 101, 247, 0.45);
+  border-radius: 6px;
+  color: #9db7ff;
+  font-size: 10px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.practice-input .mantine-Input-input {
+  min-height: 36px;
+  border-color: var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-input);
+}
+
+.practice-input .mantine-Input-label {
+  color: var(--text-primary);
+  font-weight: 650;
+}
+
+.practice-input .mantine-Input-description {
+  color: var(--text-secondary);
+}
+
+.practice-alert {
+  border-color: rgba(47, 101, 247, 0.2);
+  background: rgba(47, 101, 247, 0.08);
+}
+
+.practice-offset-button {
+  min-width: 54px;
+  height: 34px;
+  border-color: var(--border-soft);
+  border-radius: 7px;
+  background: var(--surface-control);
+  color: var(--text-primary);
+  padding-inline: 12px;
+}
+
+@media (max-width: 980px) {
+  .practice-player__row {
+    flex-wrap: wrap;
+  }
+
+  .practice-header {
+    padding-inline: 0;
+  }
+
+  .practice-roll-layout {
+    grid-template-columns: 82px minmax(0, 1fr);
+  }
+
+  .practice-roll-legend {
+    display: none;
+  }
+
+  .practice-lower-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .lyrics-sync-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .practice-settings__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .practice-sync-panel {
+    padding-left: 0;
+    border-left: 0;
+    border-top: 1px solid var(--border-subtle);
+    padding-top: 20px;
+  }
+}
+
+@media (max-width: 640px) {
+  .practice-header {
+    display: block;
+  }
+
+  .practice-header__actions {
+    align-items: stretch;
+    margin-top: 16px;
+  }
+
+  .practice-title {
+    font-size: 2rem;
+  }
+
+  .practice-roll-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .practice-piano-keys {
+    display: none;
+  }
+
+  .practice-player__timeline {
+    order: 3;
+    flex-basis: 100%;
+  }
+
+  .practice-microphone__stats {
+    align-items: stretch;
+  }
+
+  .practice-microphone__stat + .practice-microphone__stat {
+    padding-left: 0;
+    border-left: 0;
+  }
 }

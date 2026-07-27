@@ -41,7 +41,11 @@ export function LivePitchIndicator({
   const isRunning = status === 'running';
 
   return (
-    <Paper withBorder radius="md" p="lg">
+    <Paper
+      className="practice-card practice-microphone"
+      radius="lg"
+      p="lg"
+    >
       <Stack gap="md">
         <Group justify="space-between">
           <Title order={4}>Micrófono</Title>
@@ -59,18 +63,53 @@ export function LivePitchIndicator({
           </Badge>
         </Group>
 
-        <div>
-          <Text size="sm" c="dimmed">
-            Nota detectada
-          </Text>
+        <Group
+          className="practice-microphone__hero"
+          gap="xl"
+          wrap="nowrap"
+        >
+          <div className="practice-microphone__icon">
+            <span />
+          </div>
 
-          <Text size="40px" fw={700}>
-            {sample?.noteName ?? '—'}
-          </Text>
-        </div>
+          <Stack gap="sm" className="practice-microphone__copy">
+            <Text size="sm" c="dimmed">
+              Actívalo para detectar tu afinación
+            </Text>
 
-        <Group grow>
-          <div>
+            <Button
+              className="practice-button practice-microphone__button"
+              variant={isRunning ? 'default' : 'filled'}
+              loading={status === 'requesting'}
+              onClick={() => {
+                if (isRunning) {
+                  void onStop();
+                } else {
+                  void onStart();
+                }
+              }}
+            >
+              {isRunning
+                ? 'Desactivar micrófono'
+                : 'Activar micrófono'}
+            </Button>
+          </Stack>
+        </Group>
+
+        <Group
+          className="practice-microphone__stats"
+          grow
+        >
+          <div className="practice-microphone__stat">
+            <Text size="xs" c="dimmed">
+              Nota detectada
+            </Text>
+            <Text fw={600}>
+              {sample?.noteName ?? '—'}
+            </Text>
+          </div>
+
+          <div className="practice-microphone__stat">
             <Text size="xs" c="dimmed">
               Frecuencia
             </Text>
@@ -81,7 +120,7 @@ export function LivePitchIndicator({
             </Text>
           </div>
 
-          <div>
+          <div className="practice-microphone__stat">
             <Text size="xs" c="dimmed">
               Claridad
             </Text>
@@ -92,7 +131,7 @@ export function LivePitchIndicator({
             </Text>
           </div>
 
-          <div>
+          <div className="practice-microphone__stat">
             <Text size="xs" c="dimmed">
               Desviación
             </Text>
@@ -113,21 +152,13 @@ export function LivePitchIndicator({
           </Text>
         )}
 
-        <Button
-          variant={isRunning ? 'default' : 'filled'}
-          loading={status === 'requesting'}
-          onClick={() => {
-            if (isRunning) {
-              void onStop();
-            } else {
-              void onStart();
-            }
-          }}
-        >
-          {isRunning
-            ? 'Desactivar micrófono'
-            : 'Activar micrófono'}
-        </Button>
+        <Group className="practice-microphone__octave">
+          <Text>OCTAVA VOCAL AUTOMÁTICA</Text>
+          <Text>0</Text>
+          <Text>•</Text>
+          <Text>E3 - A4</Text>
+          <Text>ⓘ</Text>
+        </Group>
       </Stack>
     </Paper>
   );

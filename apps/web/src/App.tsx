@@ -11,33 +11,90 @@ import { TrackSelectionPage } from './features/track-selection/TrackSelectionPag
 
 import { PracticePage } from './features/practice/PracticePage';
 
+import { SynchronizationPage } from './features/synchronization/SynchronizationPage';
+import { LyricsSynchronizationPage } from './features/lyrics/LyricsSynchronizationPage';
+
+type ActiveView =
+  | { name: 'library' }
+  | { name: 'tracks'; song: Song }
+  | { name: 'practice'; song: Song; track: SongTrack }
+  | { name: 'synchronization'; song: Song }
+  | { name: 'lyrics'; song: Song };
+
 function App() {
-  const [selectedSong, setSelectedSong] =
-    useState<Song | null>(null);
+  const [activeView, setActiveView] =
+    useState<ActiveView>({
+      name: 'library',
+    });
 
-  const [selectedTrack, setSelectedTrack] =
-    useState<SongTrack | null>(null);
-
-  if (!selectedSong) {
+  if (activeView.name === 'library') {
     return (
       <SongLibraryPage
         onSelectSong={(song) => {
-          setSelectedSong(song);
-          setSelectedTrack(null);
+          setActiveView({
+            name: 'tracks',
+            song,
+          });
         }}
       />
     );
   }
 
-  if (!selectedTrack) {
+  if (activeView.name === 'tracks') {
     return (
       <TrackSelectionPage
-        song={selectedSong}
+        song={activeView.song}
         onBack={() => {
-          setSelectedSong(null);
+          setActiveView({
+            name: 'library',
+          });
+        }}
+        onSynchronize={() => {
+          setActiveView({
+            name: 'synchronization',
+            song: activeView.song,
+          });
+        }}
+        onSynchronizeLyrics={() => {
+          setActiveView({
+            name: 'lyrics',
+            song: activeView.song,
+          });
         }}
         onSelectTrack={(track) => {
-          setSelectedTrack(track);
+          setActiveView({
+            name: 'practice',
+            song: activeView.song,
+            track,
+          });
+        }}
+      />
+    );
+  }
+
+  if (activeView.name === 'synchronization') {
+    return (
+      <SynchronizationPage
+        song={activeView.song}
+        onBack={(song) => {
+          setActiveView({
+            name: 'tracks',
+            song,
+          });
+        }}
+      />
+    );
+  }
+
+  if (activeView.name === 'lyrics') {
+    return (
+      <LyricsSynchronizationPage
+        song={activeView.song}
+        onBack={(song) => {
+          setActiveView({
+            name: 'tracks',
+            song,
+          });
         }}
       />
     );
@@ -45,11 +102,14 @@ function App() {
 
   return (
     <PracticePage
-      key={`${selectedSong.id}-${selectedTrack.id}`}
-      song={selectedSong}
-      track={selectedTrack}
+      key={`${activeView.song.id}-${activeView.track.id}`}
+      song={activeView.song}
+      track={activeView.track}
       onBack={() => {
-        setSelectedTrack(null);
+        setActiveView({
+          name: 'tracks',
+          song: activeView.song,
+        });
       }}
     />
   );

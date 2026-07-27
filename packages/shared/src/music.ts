@@ -16,6 +16,14 @@ export interface SongTrack {
   maxMidi: number;
 }
 
+export interface SyncedLyricWord {
+  id: string;
+  startSeconds: number;
+  durationSeconds?: number;
+  noteId?: string;
+  text: string;
+}
+
 export interface Song {
   id: string;
   title: string;
@@ -24,6 +32,8 @@ export interface Song {
   durationSeconds: number;
   detectedMidiInitialSilenceMs?: number;
   midiOffsetMs: number;
+  midiTimeScale: number;
+  lyrics: SyncedLyricWord[];
   tracks: SongTrack[];
   createdAt?: string;
 }
@@ -36,6 +46,16 @@ export interface SongSummary {
   durationSeconds: number;
   detectedMidiInitialSilenceMs?: number;
   midiOffsetMs: number;
+  midiTimeScale: number;
   trackCount: number;
   createdAt?: string;
+}
+
+export interface SongSynchronization {
+  midiOffsetMs: number;
+  midiTimeScale: number;
+}
+
+export interface SongLyricsUpdate {
+  lyrics: SyncedLyricWord[];
 }

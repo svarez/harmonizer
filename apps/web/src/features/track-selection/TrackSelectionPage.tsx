@@ -20,12 +20,16 @@ import { midiToNoteName } from '../practice/musicUtils';
 interface TrackSelectionPageProps {
   song: Song;
   onSelectTrack: (track: SongTrack) => void;
+  onSynchronize: () => void;
+  onSynchronizeLyrics: () => void;
   onBack: () => void;
 }
 
 export function TrackSelectionPage({
   song,
   onSelectTrack,
+  onSynchronize,
+  onSynchronizeLyrics,
   onBack,
 }: TrackSelectionPageProps) {
   return (
@@ -38,6 +42,24 @@ export function TrackSelectionPage({
             mb="md"
           >
             ← Volver a la biblioteca
+          </Button>
+
+          <Button
+            variant="light"
+            onClick={onSynchronize}
+            mb="md"
+            ml="sm"
+          >
+            Sincronizar MP3/MIDI
+          </Button>
+
+          <Button
+            variant="light"
+            onClick={onSynchronizeLyrics}
+            mb="md"
+            ml="sm"
+          >
+            Sincronizar letras
           </Button>
 
           <Text

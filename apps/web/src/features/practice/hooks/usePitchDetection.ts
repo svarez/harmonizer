@@ -12,14 +12,22 @@ import type {
   PitchSample,
 } from '../types';
 
+interface UsePitchDetectionOptions {
+  onVisualSample?: (sample: PitchSample) => void;
+}
+
 export function usePitchDetection(
   onSample: (sample: PitchSample) => void,
+  options: UsePitchDetectionOptions = {},
 ) {
   const serviceRef = useRef(
     new PitchDetectorService(),
   );
 
   const callbackRef = useRef(onSample);
+  const visualCallbackRef = useRef(
+    options.onVisualSample,
+  );
   const lastUiUpdateRef = useRef(0);
 
   const [status, setStatus] =
@@ -37,8 +45,15 @@ export function usePitchDetection(
   }, [onSample]);
 
   useEffect(() => {
+    visualCallbackRef.current =
+      options.onVisualSample;
+  }, [options.onVisualSample]);
+
+  useEffect(() => {
+    const service = serviceRef.current;
+
     return () => {
-      void serviceRef.current.stop();
+      void service.stop();
     };
   }, []);
 
@@ -50,10 +65,12 @@ export function usePitchDetection(
       await serviceRef.current.start(
         (newSample) => {
           callbackRef.current(newSample);
+          visualCallbackRef.current?.(newSample);
 
           /*
            * La puntuación recibe todas las muestras.
-           * La interfaz se actualiza solo unas 10 veces
+           * El canvas recibe todas las muestras por ref.
+           * React se actualiza unas 10 veces
            * por segundo para no renderizar innecesariamente.
            */
           const now = performance.now();

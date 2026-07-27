@@ -21,7 +21,9 @@ interface UsePracticeSessionOptions {
   notes: NoteEvent[];
   scoringConfig: ScoringConfig;
   midiOffsetMs: number;
+  midiTimeScale: number;
   latencyCompensationMs: number;
+  onVisualPitchSample?: (sample: PitchSample) => void;
 }
 
 const EMPTY_RESULTS: NoteResult[] = [];
@@ -126,7 +128,9 @@ export function usePracticeSession({
   notes,
   scoringConfig,
   midiOffsetMs,
+  midiTimeScale,
   latencyCompensationMs,
+  onVisualPitchSample,
 }: UsePracticeSessionOptions) {
   const scoringEngine = useMemo(
     () =>
@@ -174,9 +178,10 @@ export function usePracticeSession({
        * el retardo del micrófono y del procesamiento.
        */
       const evaluationTime =
-        audio.currentTime -
-        midiOffsetMs / 1000 -
-        latencyCompensationMs / 1000;
+        (audio.currentTime -
+          midiOffsetMs / 1000 -
+          latencyCompensationMs / 1000) /
+        midiTimeScale;
 
       const newResults = scoringEngine.recordSample(
         evaluationTime,
@@ -199,13 +204,16 @@ export function usePracticeSession({
       getAudioElement,
       latencyCompensationMs,
       midiOffsetMs,
+      midiTimeScale,
       scoringEngine,
       sessionKey,
     ],
   );
 
   const pitchDetection =
-    usePitchDetection(handlePitchSample);
+    usePitchDetection(handlePitchSample, {
+      onVisualSample: onVisualPitchSample,
+    });
 
   const finish = useCallback(() => {
     const remainingResults =

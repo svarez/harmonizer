@@ -1,9 +1,13 @@
 import {
+  type RefObject,
   useEffect,
   useRef,
 } from 'react';
 
-import type { NoteEvent } from '@harmonizer/shared';
+import type {
+  NoteEvent,
+  SyncedLyricWord,
+} from '@harmonizer/shared';
 
 import type {
   NoteResult,
@@ -18,25 +22,52 @@ import {
 
 interface PianoRollCanvasProps {
   notes: NoteEvent[];
+  supportingTracks?: PianoRollSupportingTrack[];
   minMidi: number;
   maxMidi: number;
   getAudioCurrentTime: () => number;
   resultsByNoteId: Record<string, NoteResult>;
   midiOffsetMs: number;
+  midiTimeScale: number;
+  lyrics?: SyncedLyricWord[];
   livePitchSample: PitchSample | null;
+  livePitchSampleRef?: RefObject<PitchSample | null>;
 }
 
-const PIXELS_PER_SECOND = 180;
+interface PianoRollSupportingTrack {
+  id: string;
+  name: string;
+  color?: string;
+  notes: NoteEvent[];
+}
+
+const PIXELS_PER_SECOND = 190;
 const PLAYHEAD_POSITION = 0.3;
 const TIME_MARK_INTERVAL_SECONDS = 1;
-const VOICE_TRAIL_SECONDS = 5;
-const VOICE_SAMPLE_MIN_GAP_SECONDS = 0.04;
-const LIVE_SAMPLE_MAX_AGE_MS = 300;
+const VOICE_HISTORY_SECONDS = 240;
+const MAX_VOICE_TRAIL_POINTS = 1200;
+const VOICE_SAMPLE_MIN_GAP_MS = 110;
+const LIVE_SAMPLE_MAX_AGE_MS = 160;
+const LIVE_POINT_HOLD_MS = 1800;
+const VOICE_TRAIL_FADE_MS = 4500;
+const VOICE_HISTORY_BASE_OPACITY = 0.035;
+const VOICE_HISTORY_RECENT_OPACITY = 0.18;
+const VOICE_SEGMENT_MAX_GAP_SECONDS = 0.8;
+const SUPPORTING_TRACK_COLORS = [
+  '#8b5cf6',
+  '#22c1c8',
+  '#78c943',
+  '#f59e0b',
+  '#ec4899',
+];
 
 interface VoiceTrailPoint {
   songTime: number;
   midi: number;
   clarity: number;
+  intensity: number;
+  radius: number;
+  timestampMs: number;
 }
 
 function findReferenceMidi(
@@ -85,25 +116,66 @@ function midiToY(
   return (maxMidi - clampedMidi + 0.5) * noteRowHeight;
 }
 
+function intensityToRadius(intensity: number): number {
+  const clampedIntensity = Math.min(
+    Math.max(intensity, 0),
+    1,
+  );
+
+  return 4 + clampedIntensity * 9;
+}
+
+function getHistoryOpacity(
+  ageMs: number,
+  songDistanceSeconds: number,
+): number {
+  const ageOpacity = Math.max(
+    1 - ageMs / VOICE_TRAIL_FADE_MS,
+    0,
+  );
+
+  const distanceOpacity = Math.max(
+    1 -
+      songDistanceSeconds /
+        Math.max(VOICE_HISTORY_SECONDS, 1),
+    0,
+  );
+
+  return Math.min(
+    VOICE_HISTORY_BASE_OPACITY +
+      distanceOpacity * VOICE_HISTORY_BASE_OPACITY +
+      ageOpacity * VOICE_HISTORY_RECENT_OPACITY,
+    0.32,
+  );
+}
+
 export function PianoRollCanvas({
   notes,
+  supportingTracks = [],
   minMidi,
   maxMidi,
   getAudioCurrentTime,
   resultsByNoteId,
   midiOffsetMs,
+  midiTimeScale,
+  lyrics = [],
   livePitchSample,
+  livePitchSampleRef: externalLivePitchSampleRef,
 }: PianoRollCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const livePitchSampleRef =
     useRef<PitchSample | null>(livePitchSample);
+  const resultsByNoteIdRef = useRef(resultsByNoteId);
   const voiceTrailRef = useRef<VoiceTrailPoint[]>([]);
-  const lastTrailSongTimeRef = useRef<number | null>(null);
-  const previousAudioTimeRef = useRef<number | null>(null);
+  const lastTrailTimestampMsRef = useRef<number | null>(null);
 
   useEffect(() => {
     livePitchSampleRef.current = livePitchSample;
   }, [livePitchSample]);
+
+  useEffect(() => {
+    resultsByNoteIdRef.current = resultsByNoteId;
+  }, [resultsByNoteId]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -125,12 +197,23 @@ export function PianoRollCanvas({
     const resizeCanvas = () => {
       const bounds = canvas.getBoundingClientRect();
       const pixelRatio = window.devicePixelRatio || 1;
+      const nextCanvasWidth = Math.floor(bounds.width * pixelRatio);
+      const nextCanvasHeight = Math.floor(bounds.height * pixelRatio);
+
+      if (
+        canvas.width === nextCanvasWidth &&
+        canvas.height === nextCanvasHeight
+      ) {
+        canvasWidth = bounds.width;
+        canvasHeight = bounds.height;
+        return;
+      }
 
       canvasWidth = bounds.width;
       canvasHeight = bounds.height;
 
-      canvas.width = Math.floor(bounds.width * pixelRatio);
-      canvas.height = Math.floor(bounds.height * pixelRatio);
+      canvas.width = nextCanvasWidth;
+      canvas.height = nextCanvasHeight;
 
       context.setTransform(
         pixelRatio,
@@ -149,19 +232,27 @@ export function PianoRollCanvas({
     const draw = () => {
       context.clearRect(0, 0, canvasWidth, canvasHeight);
 
-      context.fillStyle = '#111113';
+      context.fillStyle = '#0b0c10';
       context.fillRect(0, 0, canvasWidth, canvasHeight);
 
-      const pitchSample = livePitchSampleRef.current;
+      const nowMs = performance.now();
+      const pitchSample =
+        externalLivePitchSampleRef?.current ??
+        livePitchSampleRef.current;
       const detectedMidi = pitchSample?.detectedMidi;
       const hasDetectedPitch =
         detectedMidi !== null && detectedMidi !== undefined;
 
+      const lyricsLaneHeight =
+        lyrics.length > 0 ? 70 : 0;
+      const notesCanvasHeight =
+        canvasHeight - lyricsLaneHeight;
       const pitchCount = Math.max(
         maxMidi - minMidi + 1,
         1,
       );
-      const noteRowHeight = canvasHeight / pitchCount;
+      const noteRowHeight =
+        notesCanvasHeight / pitchCount;
       const playheadX = canvasWidth * PLAYHEAD_POSITION;
 
       const audioTime = getAudioCurrentTime();
@@ -171,19 +262,9 @@ export function PianoRollCanvas({
        * Ejemplo: offset 200 ms significa que una nota MIDI situada
        * en 1 segundo debe coincidir con el segundo 1,2 del MP3.
        */
-      const midiTime = audioTime - midiOffsetMs / 1000;
-
-      const previousAudioTime = previousAudioTimeRef.current;
-
-      if (
-        previousAudioTime !== null &&
-        Math.abs(audioTime - previousAudioTime) > 0.5
-      ) {
-        voiceTrailRef.current = [];
-        lastTrailSongTimeRef.current = null;
-      }
-
-      previousAudioTimeRef.current = audioTime;
+      const offsetSeconds = midiOffsetMs / 1000;
+      const midiTime =
+        (audioTime - offsetSeconds) / midiTimeScale;
 
       const firstVisibleAudioTime =
         audioTime - playheadX / PIXELS_PER_SECOND;
@@ -214,15 +295,15 @@ export function PianoRollCanvas({
 
         context.beginPath();
         context.moveTo(x, 0);
-        context.lineTo(x, canvasHeight);
+        context.lineTo(x, notesCanvasHeight);
         context.strokeStyle = isMeasureMark
-          ? '#3f3f46'
-          : '#27272a';
+          ? 'rgba(70, 74, 86, 0.46)'
+          : 'rgba(56, 59, 68, 0.24)';
         context.lineWidth = isMeasureMark ? 1 : 0.5;
         context.stroke();
 
         if (isMeasureMark) {
-          context.fillStyle = '#a1a1aa';
+          context.fillStyle = '#a9abb5';
           context.fillText(formatTime(time), x + 5, 7);
         }
       }
@@ -240,19 +321,78 @@ export function PianoRollCanvas({
         context.beginPath();
         context.moveTo(0, y);
         context.lineTo(canvasWidth, y);
-        context.strokeStyle = isC ? '#3f3f46' : '#27272a';
-        context.lineWidth = isC ? 1.5 : 1;
+        context.strokeStyle = isC
+          ? 'rgba(104, 109, 126, 0.54)'
+          : 'rgba(67, 71, 82, 0.36)';
+        context.lineWidth = isC ? 1.4 : 0.9;
         context.stroke();
       }
 
+      supportingTracks.forEach((supportingTrack, trackIndex) => {
+        const trackOpacity = trackIndex === 0 ? 0.42 : 0.28;
+        const trackColor =
+          supportingTrack.color ??
+          SUPPORTING_TRACK_COLORS[
+            trackIndex % SUPPORTING_TRACK_COLORS.length
+          ];
+
+        for (const note of supportingTrack.notes) {
+          const adjustedStart =
+            note.startSeconds * midiTimeScale +
+            offsetSeconds;
+          const adjustedDuration =
+            note.durationSeconds * midiTimeScale;
+          const x =
+            playheadX +
+            (adjustedStart - audioTime) *
+              PIXELS_PER_SECOND;
+
+          const width = Math.max(
+            adjustedDuration * PIXELS_PER_SECOND,
+            3,
+          );
+
+          if (x + width < 0 || x > canvasWidth) {
+            continue;
+          }
+
+          const rowIndex = maxMidi - note.midi;
+          const y = rowIndex * noteRowHeight + 3;
+          const height = Math.max(noteRowHeight - 6, 3);
+
+          context.beginPath();
+          context.roundRect(x, y, width, height, 3);
+          context.fillStyle = trackColor;
+          context.globalAlpha = trackOpacity;
+          context.fill();
+          context.globalAlpha = 1;
+
+          if (height >= 14 && width >= 46) {
+            context.fillStyle = `rgba(245, 247, 255, ${trackOpacity + 0.18})`;
+            context.font = '10px Inter, sans-serif';
+            context.textBaseline = 'middle';
+            context.fillText(
+              midiToNoteName(note.midi),
+              x + 6,
+              y + height / 2,
+            );
+          }
+        }
+      });
+
       for (const note of notes) {
+        const adjustedStart =
+          note.startSeconds * midiTimeScale +
+          offsetSeconds;
+        const adjustedDuration =
+          note.durationSeconds * midiTimeScale;
         const x =
           playheadX +
-          (note.startSeconds - midiTime) *
+          (adjustedStart - audioTime) *
             PIXELS_PER_SECOND;
 
         const width = Math.max(
-          note.durationSeconds * PIXELS_PER_SECOND,
+          adjustedDuration * PIXELS_PER_SECOND,
           4,
         );
 
@@ -264,14 +404,14 @@ export function PianoRollCanvas({
         const y = rowIndex * noteRowHeight + 2;
         const height = Math.max(noteRowHeight - 4, 4);
 
-        const result = resultsByNoteId[note.id];
+        const result = resultsByNoteIdRef.current[note.id];
 
         if (result?.status === 'correct') {
           context.fillStyle = '#22c55e';
         } else if (result?.status === 'incorrect') {
           context.fillStyle = '#ef4444';
         } else {
-          context.fillStyle = '#71717a';
+          context.fillStyle = '#2f7cff';
         }
 
         context.beginPath();
@@ -292,7 +432,7 @@ export function PianoRollCanvas({
       }
 
       const sampleAgeMs = pitchSample
-        ? performance.now() - pitchSample.timestampMs
+        ? nowMs - pitchSample.timestampMs
         : Number.POSITIVE_INFINITY;
       const hasFreshDetectedPitch =
         pitchSample &&
@@ -310,38 +450,53 @@ export function PianoRollCanvas({
           detectedMidi,
           referenceMidi,
         );
-        const lastTrailSongTime = lastTrailSongTimeRef.current;
+        const lastTrailTimestampMs =
+          lastTrailTimestampMsRef.current;
 
         if (
-          lastTrailSongTime === null ||
-          Math.abs(midiTime - lastTrailSongTime) >=
-            VOICE_SAMPLE_MIN_GAP_SECONDS
+          lastTrailTimestampMs === null ||
+          pitchSample.timestampMs - lastTrailTimestampMs >=
+            VOICE_SAMPLE_MIN_GAP_MS
         ) {
+          const radius = intensityToRadius(
+            pitchSample.intensity,
+          );
+
           voiceTrailRef.current = [
             ...voiceTrailRef.current,
             {
               songTime: midiTime,
               midi: displayMidi,
               clarity: pitchSample.clarity,
+              intensity: pitchSample.intensity,
+              radius,
+              timestampMs: pitchSample.timestampMs,
             },
           ];
 
-          lastTrailSongTimeRef.current = midiTime;
+          lastTrailTimestampMsRef.current =
+            pitchSample.timestampMs;
         }
       }
 
-      voiceTrailRef.current = voiceTrailRef.current.filter(
-        (point) =>
-          point.songTime >= midiTime - VOICE_TRAIL_SECONDS &&
-          point.songTime <= midiTime + 0.25,
-      );
+      if (
+        voiceTrailRef.current.length >
+        MAX_VOICE_TRAIL_POINTS
+      ) {
+        voiceTrailRef.current =
+          voiceTrailRef.current.slice(-MAX_VOICE_TRAIL_POINTS);
+      }
 
       const visibleTrailPoints = voiceTrailRef.current
         .map((point) => ({
           ...point,
+          ageMs: Math.max(nowMs - point.timestampMs, 0),
           x:
             playheadX +
-            (point.songTime - midiTime) * PIXELS_PER_SECOND,
+            (point.songTime * midiTimeScale +
+              offsetSeconds -
+              audioTime) *
+              PIXELS_PER_SECOND,
           y: midiToY(
             point.midi,
             minMidi,
@@ -351,7 +506,7 @@ export function PianoRollCanvas({
         }))
         .filter(
           (point) =>
-            point.x >= -20 && point.x <= canvasWidth + 20,
+            point.x >= -40 && point.x <= canvasWidth + 40,
         );
 
       if (visibleTrailPoints.length > 1) {
@@ -366,14 +521,28 @@ export function PianoRollCanvas({
         ) {
           const previousPoint = visibleTrailPoints[index - 1];
           const point = visibleTrailPoints[index];
-          const ageSeconds = Math.max(
+          const segmentGapSeconds =
+            point.songTime - previousPoint.songTime;
+
+          if (
+            segmentGapSeconds <= 0 ||
+            segmentGapSeconds > VOICE_SEGMENT_MAX_GAP_SECONDS
+          ) {
+            continue;
+          }
+
+          const songDistanceSeconds = Math.max(
             midiTime - point.songTime,
             0,
           );
-          const opacity = Math.max(
-            1 - ageSeconds / VOICE_TRAIL_SECONDS,
-            0.2,
+          const opacity = getHistoryOpacity(
+            point.ageMs,
+            songDistanceSeconds,
           );
+
+          if (opacity <= 0.01) {
+            continue;
+          }
 
           context.beginPath();
           context.moveTo(previousPoint.x, previousPoint.y);
@@ -382,7 +551,13 @@ export function PianoRollCanvas({
             point.clarity >= MIN_RELIABLE_PITCH_CLARITY
               ? `rgba(34, 211, 238, ${opacity})`
               : `rgba(245, 158, 11, ${opacity})`;
-          context.lineWidth = 5;
+          context.lineWidth = Math.max(
+            Math.min(
+              (previousPoint.radius + point.radius) * 0.28,
+              4,
+            ),
+            1.2,
+          );
           context.stroke();
         }
 
@@ -390,35 +565,45 @@ export function PianoRollCanvas({
       }
 
       for (const point of visibleTrailPoints) {
-        const ageSeconds = Math.max(
-          midiTime - point.songTime,
-          0,
-        );
+        const isRecentPoint =
+          point.ageMs <= LIVE_POINT_HOLD_MS;
+
+        if (!isRecentPoint) {
+          continue;
+        }
+
         const opacity = Math.max(
-          1 - ageSeconds / VOICE_TRAIL_SECONDS,
-          0.15,
+          1 - point.ageMs / LIVE_POINT_HOLD_MS,
+          0,
         );
 
         context.beginPath();
-        context.arc(point.x, point.y, 3.5, 0, Math.PI * 2);
+        context.arc(
+          point.x,
+          point.y,
+          point.radius * 0.75,
+          0,
+          Math.PI * 2,
+        );
         context.fillStyle =
           point.clarity >= MIN_RELIABLE_PITCH_CLARITY
-            ? `rgba(34, 211, 238, ${opacity})`
-            : `rgba(245, 158, 11, ${opacity})`;
+            ? `rgba(34, 211, 238, ${opacity * 0.55})`
+            : `rgba(245, 158, 11, ${opacity * 0.55})`;
         context.fill();
       }
 
-      if (hasFreshDetectedPitch) {
-        const displayMidi =
-          voiceTrailRef.current.at(-1)?.midi ??
-          shiftMidiToClosestOctave(
-            detectedMidi,
-            findReferenceMidi(
-              notes,
-              midiTime,
-              (minMidi + maxMidi) / 2,
-            ),
-          );
+      const latestVisiblePoint = visibleTrailPoints.at(-1);
+      const shouldDrawLivePoint =
+        latestVisiblePoint &&
+        latestVisiblePoint.ageMs <= LIVE_POINT_HOLD_MS;
+
+      if (shouldDrawLivePoint && latestVisiblePoint) {
+        const liveOpacity = Math.max(
+          1 -
+            latestVisiblePoint.ageMs / LIVE_POINT_HOLD_MS,
+          0,
+        );
+        const displayMidi = latestVisiblePoint.midi;
         const isInsideVisibleRange =
           displayMidi >= minMidi &&
           displayMidi <= maxMidi;
@@ -426,32 +611,55 @@ export function PianoRollCanvas({
         const pitchY =
           midiToY(displayMidi, minMidi, maxMidi, noteRowHeight);
         const pitchColor =
-          pitchSample.clarity >= MIN_RELIABLE_PITCH_CLARITY
+          latestVisiblePoint.clarity >=
+          MIN_RELIABLE_PITCH_CLARITY
             ? '#22d3ee'
             : '#f59e0b';
+        const liveRadius = latestVisiblePoint.radius;
 
         context.save();
         context.beginPath();
-        context.arc(playheadX, pitchY, 11, 0, Math.PI * 2);
-        context.fillStyle = `${pitchColor}33`;
+        context.arc(
+          latestVisiblePoint.x,
+          pitchY,
+          liveRadius + 6,
+          0,
+          Math.PI * 2,
+        );
+        context.fillStyle =
+          pitchColor === '#22d3ee'
+            ? `rgba(34, 211, 238, ${liveOpacity * 0.2})`
+            : `rgba(245, 158, 11, ${liveOpacity * 0.2})`;
         context.fill();
 
         context.beginPath();
-        context.arc(playheadX, pitchY, 6, 0, Math.PI * 2);
-        context.fillStyle = pitchColor;
+        context.arc(
+          latestVisiblePoint.x,
+          pitchY,
+          liveRadius,
+          0,
+          Math.PI * 2,
+        );
+        context.fillStyle =
+          pitchColor === '#22d3ee'
+            ? `rgba(34, 211, 238, ${liveOpacity})`
+            : `rgba(245, 158, 11, ${liveOpacity})`;
         context.fill();
         context.lineWidth = 2;
-        context.strokeStyle = '#ffffff';
+        context.strokeStyle = `rgba(255, 255, 255, ${liveOpacity})`;
         context.stroke();
 
         context.fillStyle = pitchColor;
         context.font = '12px Inter, sans-serif';
         context.textBaseline = 'middle';
-        context.fillText(
-          pitchSample.noteName ?? midiToNoteName(detectedMidi),
-          playheadX + 14,
-          pitchY,
-        );
+
+        if (liveOpacity > 0.35) {
+          context.fillText(
+            midiToNoteName(displayMidi),
+            latestVisiblePoint.x + liveRadius + 8,
+            pitchY,
+          );
+        }
 
         if (!isInsideVisibleRange) {
           context.fillStyle = '#fca5a5';
@@ -460,7 +668,7 @@ export function PianoRollCanvas({
             displayMidi > maxMidi
               ? 'por encima'
               : 'por debajo',
-            playheadX + 14,
+            latestVisiblePoint.x + liveRadius + 8,
             pitchY + 16,
           );
         }
@@ -468,12 +676,64 @@ export function PianoRollCanvas({
         context.restore();
       }
 
+      if (lyrics.length > 0) {
+        const lyricsTop = notesCanvasHeight;
+        const activeWordIndex = lyrics.findLastIndex((word) => {
+          const endSeconds =
+            word.startSeconds + (word.durationSeconds ?? 0.35);
+
+          return audioTime >= word.startSeconds && audioTime < endSeconds;
+        });
+
+        context.fillStyle = 'rgba(9, 10, 13, 0.96)';
+        context.fillRect(0, lyricsTop, canvasWidth, lyricsLaneHeight);
+        context.strokeStyle = 'rgba(80, 84, 96, 0.56)';
+        context.lineWidth = 1;
+        context.beginPath();
+        context.moveTo(0, lyricsTop + 0.5);
+        context.lineTo(canvasWidth, lyricsTop + 0.5);
+        context.stroke();
+
+        lyrics.forEach((word, wordIndex) => {
+          const x =
+            playheadX +
+            (word.startSeconds - audioTime) * PIXELS_PER_SECOND;
+          const width = Math.max(
+            (word.durationSeconds ?? 0.35) * PIXELS_PER_SECOND,
+            22,
+          );
+
+          if (x + width < 0 || x > canvasWidth) {
+            return;
+          }
+
+          const isActive = wordIndex === activeWordIndex;
+          const y = lyricsTop + (isActive ? 15 : 21);
+
+          context.fillStyle = isActive ? '#f6f7fb' : '#8f929b';
+          context.font = isActive
+            ? '800 28px Inter, sans-serif'
+            : '700 20px Inter, sans-serif';
+          context.textBaseline = 'top';
+          context.shadowColor = isActive
+            ? 'rgba(49, 93, 247, 0.55)'
+            : 'transparent';
+          context.shadowBlur = isActive ? 16 : 0;
+          context.fillText(word.text, x + 4, y, width + 80);
+          context.shadowBlur = 0;
+        });
+      }
+
+      context.save();
+      context.shadowBlur = 10;
+      context.shadowColor = 'rgba(250, 204, 21, 0.45)';
       context.beginPath();
       context.moveTo(playheadX, 0);
       context.lineTo(playheadX, canvasHeight);
       context.strokeStyle = '#facc15';
-      context.lineWidth = 3;
+      context.lineWidth = 2;
       context.stroke();
+      context.restore();
 
       context.fillStyle = '#facc15';
       context.beginPath();
@@ -483,14 +743,25 @@ export function PianoRollCanvas({
       context.closePath();
       context.fill();
 
+      const labelX = playheadX + 18;
+      const labelY = 8;
+
+      context.beginPath();
+      context.roundRect(labelX, labelY, 92, 50, 8);
+      context.fillStyle = 'rgba(13, 15, 20, 0.88)';
+      context.fill();
+      context.strokeStyle = 'rgba(80, 84, 96, 0.72)';
+      context.lineWidth = 1;
+      context.stroke();
+
       context.fillStyle = '#facc15';
-      context.font = '12px Inter, sans-serif';
+      context.font = '700 13px Inter, sans-serif';
       context.textBaseline = 'top';
-      context.fillText(
-        `${formatTime(audioTime)} MP3`,
-        playheadX + 10,
-        7,
-      );
+      context.fillText(formatTime(audioTime), labelX + 12, labelY + 10);
+
+      context.fillStyle = '#f2f3f7';
+      context.font = '12px Inter, sans-serif';
+      context.fillText('MP3', labelX + 12, labelY + 29);
 
       if (midiOffsetMs !== 0) {
         const offsetLabel =
@@ -512,12 +783,15 @@ export function PianoRollCanvas({
       resizeObserver.disconnect();
     };
   }, [
+    externalLivePitchSampleRef,
     getAudioCurrentTime,
     maxMidi,
     midiOffsetMs,
+    midiTimeScale,
+    lyrics,
     minMidi,
     notes,
-    resultsByNoteId,
+    supportingTracks,
   ]);
 
   return (
@@ -526,9 +800,8 @@ export function PianoRollCanvas({
       style={{
         display: 'block',
         width: '100%',
-        height: 420,
+        height: 330,
         borderRadius: 12,
-        border: '1px solid #2f2f33',
       }}
     />
   );
