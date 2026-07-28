@@ -28,7 +28,7 @@ async function parseResponse<T>(
       message = body.message;
     }
   } catch {
-    // La respuesta no contiene JSON válido.
+    // The response does not contain valid JSON.
   }
 
   throw new Error(message);

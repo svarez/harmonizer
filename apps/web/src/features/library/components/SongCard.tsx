@@ -80,7 +80,7 @@ export function SongCard({
           <div className="library-song-copy">
 
             <Text className="library-song-artist">
-              {song.artist || 'Artista desconocido'}
+              {song.artist || 'Unknown artist'}
             </Text>
             
             <Title className="library-song-title" order={3}>
@@ -109,7 +109,7 @@ export function SongCard({
                 onDelete();
               }}
             >
-              Eliminar
+              Delete
             </Button>
 
             <input
@@ -141,7 +141,7 @@ export function SongCard({
                 coverInputRef.current?.click();
               }}
             >
-              Cambiar portada
+              Change cover
             </Button>
 
             <Button
@@ -153,7 +153,7 @@ export function SongCard({
                 onSynchronize?.();
               }}
             >
-              Sincronizar MP3/MIDI
+              Sync MP3/MIDI
             </Button>
 
             <Button
@@ -165,7 +165,7 @@ export function SongCard({
                 onSynchronizeLyrics?.();
               }}
             >
-              Sincronizar letras
+              Sync lyrics
             </Button>
           </Stack>
         )}

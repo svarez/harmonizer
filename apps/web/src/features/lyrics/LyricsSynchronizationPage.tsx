@@ -697,7 +697,7 @@ function LyricsTimeline({
               .map((track) => track.name)
               .slice(0, 3)
               .join(' / ')
-          : 'Selecciona una pista vocal abajo',
+          : 'Select a vocal track below',
         104,
         midiTop + 12,
         260,
@@ -1142,7 +1142,7 @@ export function LyricsSynchronizationPage({
         id: createLyricWordId(),
         startSeconds,
         durationSeconds,
-        text: 'palabra',
+        text: 'word',
       };
 
       setSelectedLineId(nextWordToAdd.id);
@@ -1348,7 +1348,7 @@ export function LyricsSynchronizationPage({
       setError(
         caughtError instanceof Error
           ? caughtError.message
-          : 'No se han podido guardar las letras',
+          : 'Could not save lyrics',
       );
     } finally {
       setSaving(false);
@@ -1367,7 +1367,7 @@ export function LyricsSynchronizationPage({
               }}
               mb="md"
             >
-              ← Biblioteca
+              ← Library
             </Button>
 
             <Text
@@ -1376,7 +1376,7 @@ export function LyricsSynchronizationPage({
               c="indigo.3"
               tt="uppercase"
             >
-              Sincronizar letras
+              Sync lyrics
             </Text>
 
             <Title order={1}>
@@ -1391,7 +1391,7 @@ export function LyricsSynchronizationPage({
               void handleSave();
             }}
           >
-            Guardar
+            Save
           </Button>
         </Group>
 
@@ -1428,7 +1428,7 @@ export function LyricsSynchronizationPage({
         <Paper withBorder radius="md" p="md">
           <Stack gap="sm">
             <Slider
-              aria-label="Posición de reproducción"
+              aria-label="Playback position"
               value={currentTime}
               min={0}
               max={Math.max(audioDuration, 0)}
@@ -1459,7 +1459,7 @@ export function LyricsSynchronizationPage({
                     setCurrentTime(0);
                   }}
                 >
-                  Reiniciar
+                  Restart
                 </Button>
 
                 <Button
@@ -1467,7 +1467,7 @@ export function LyricsSynchronizationPage({
                     void handlePlayPause();
                   }}
                 >
-                  {isPlaying ? 'Pausar' : 'Reproducir'}
+                  {isPlaying ? 'Pause' : 'Play'}
                 </Button>
 
                 <Button
@@ -1475,7 +1475,7 @@ export function LyricsSynchronizationPage({
                   disabled={lyrics.length === 0}
                   onClick={handleMarkSelected}
                 >
-                  Marcar palabra aquí
+                  Mark word here
                 </Button>
               </Group>
 
@@ -1501,7 +1501,7 @@ export function LyricsSynchronizationPage({
               ))}
 
               <Text size="xs" c="dimmed">
-                También puedes arrastrar cada palabra en la línea de tiempo.
+                You can also drag each word on the timeline.
               </Text>
             </Group>
           </Stack>
@@ -1510,12 +1510,12 @@ export function LyricsSynchronizationPage({
         <div className="lyrics-sync-grid">
           <Paper withBorder radius="md" p="lg">
             <Stack gap="md">
-              <Title order={4}>Texto</Title>
+              <Title order={4}>Text</Title>
 
               <Textarea
                 minRows={6}
                 placeholder={
-                  'Pega la letra completa. Se separará por palabras y se encajará con las notas MIDI vocales.'
+                  'Paste the full lyrics. They will be split into words and fitted to the vocal MIDI notes.'
                 }
                 value={draft}
                 onChange={(event) => {
@@ -1529,7 +1529,7 @@ export function LyricsSynchronizationPage({
                   disabled={vocalTracks.length === 0}
                   onClick={handleLoadDraft}
                 >
-                  Separar y encajar
+                  Split and fit
                 </Button>
 
                 <Button
@@ -1540,7 +1540,7 @@ export function LyricsSynchronizationPage({
                   }
                   onClick={handleFitWordsToMidi}
                 >
-                  Encajar con MIDI
+                  Fit to MIDI
                 </Button>
               </Group>
 
@@ -1555,7 +1555,7 @@ export function LyricsSynchronizationPage({
                     );
                   }}
                 >
-                  Editar texto actual
+                  Edit current text
                 </Button>
               </Group>
 
@@ -1574,16 +1574,16 @@ export function LyricsSynchronizationPage({
 
               <Stack gap="xs">
                 <Text fw={650} size="sm">
-                  Letra de pista vocal
+                  Vocal track lyrics
                 </Text>
 
                 <Text size="xs" c="dimmed">
-                  {lyrics.length} palabras · {vocalNotes.length} notas. Si la pista está vacía, se sugiere desde la letra principal.
+                  {lyrics.length} words · {vocalNotes.length} notes. If the track is empty, it is suggested from the main lyrics.
                 </Text>
 
                 {availableVocalTracks.length === 0 ? (
-                  <Alert color="yellow" title="Sin pistas vocales">
-                    No se ha detectado ninguna pista vocal en esta canción.
+                  <Alert color="yellow" title="No vocal tracks">
+                    No vocal track was detected in this song.
                   </Alert>
                 ) : (
                   <Radio.Group
@@ -1612,7 +1612,7 @@ export function LyricsSynchronizationPage({
           <Paper withBorder radius="md" p="lg">
             <Stack gap="md">
               <Group justify="space-between">
-                <Title order={4}>Palabras sincronizadas</Title>
+                <Title order={4}>Synced words</Title>
                 <Button
                   variant="light"
                   size="xs"
@@ -1620,7 +1620,7 @@ export function LyricsSynchronizationPage({
                     handleAddWordAfter(selectedLineId);
                   }}
                 >
-                  Añadir palabra
+                  Add word
                 </Button>
               </Group>
 
@@ -1640,7 +1640,7 @@ export function LyricsSynchronizationPage({
                       </Text>
 
                       <NumberInput
-                        aria-label="Tiempo de la palabra"
+                        aria-label="Word time"
                         value={line.startSeconds}
                         min={0}
                         max={Math.max(audioDuration, 0)}
@@ -1658,7 +1658,7 @@ export function LyricsSynchronizationPage({
                       />
 
                       <NumberInput
-                        aria-label="Notas que ocupa"
+                        aria-label="Notes occupied"
                         value={getWordNoteSpan(line, vocalNotes)}
                         min={1}
                         max={Math.max(vocalNotes.length, 1)}
@@ -1673,7 +1673,7 @@ export function LyricsSynchronizationPage({
                       />
 
                       <TextInput
-                        aria-label="Texto de la palabra"
+                        aria-label="Word text"
                         value={line.text}
                         onFocus={() => {
                           setSelectedLineId(line.id);
@@ -1693,7 +1693,7 @@ export function LyricsSynchronizationPage({
                           handleDeleteWord(line.id);
                         }}
                       >
-                        Borrar
+                        Delete
                       </Button>
                     </div>
                   ))}

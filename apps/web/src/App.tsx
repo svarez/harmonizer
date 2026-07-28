@@ -56,7 +56,7 @@ function App() {
       name: 'library',
     });
     setLibraryNotice(
-      `"${song.title}" no tiene una pista vocal detectable para practicar.`,
+      `"${song.title}" does not have a detectable vocal track to practice.`,
     );
   };
 
@@ -100,7 +100,7 @@ function App() {
     if (!adminAccess) {
       return (
         <SongLibraryPage
-          notice="La sincronización MP3/MIDI solo está disponible en modo administrador."
+          notice="MP3/MIDI synchronization is only available in admin mode."
           onSelectSong={openPracticeSong}
         />
       );
@@ -123,7 +123,7 @@ function App() {
     if (!adminAccess) {
       return (
         <SongLibraryPage
-          notice="La sincronización de letras solo está disponible en modo administrador."
+          notice="Lyrics synchronization is only available in admin mode."
           onSelectSong={openPracticeSong}
         />
       );

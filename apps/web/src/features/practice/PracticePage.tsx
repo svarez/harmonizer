@@ -34,6 +34,10 @@ import {
 } from './hooks/useMidiPlayback';
 import { usePracticeSession } from './hooks/usePracticeSession';
 import {
+  detectChordSegmentsFromTracks,
+  getChordSourceTracks,
+} from './chordDetection';
+import {
   midiToNoteName,
   MIN_RELIABLE_PITCH_CLARITY,
 } from './musicUtils';
@@ -42,6 +46,7 @@ import { PianoRollCanvas } from './components/PianoRollCanvas';
 import { PlayerControls } from './components/PlayerControls';
 import { LivePitchIndicator } from './components/LivePitchIndicator';
 import { ResultsPanel } from './components/ResultsPanel';
+import { BeatlesVerdictOverlay } from './components/BeatlesVerdictOverlay';
 import type { PitchSample } from './types';
 import { getVocalTracks } from '../vocalTracks';
 
@@ -65,6 +70,140 @@ const TRACK_COLORS = [
 
 const MAIN_MIDI_TRACK_VOLUME = 0.1;
 const SUPPORTING_MIDI_TRACK_VOLUME = 0.02;
+const VERDICT_VISIBLE_MS = 6500;
+
+const BEATLES_VERDICTS = [
+  {
+    min: 0,
+    max: 9,
+    messages: [
+      'You suck.',
+      'What the hell was that?',
+      'John Lennon would rise from the grave just to beat the crap out of you',
+      "You're a disgrace. You don't deserve to listen to the Beatles ever again",
+    ],
+  },
+  {
+    min: 10,
+    max: 19,
+    messages: [
+      'John Lennon would throw up in your face',
+      "McCartney's dog could do better than you",
+      'You somehow managed to make "Revolution 9" sound catchy',
+    ],
+  },
+  {
+    min: 20,
+    max: 29,
+    messages: [
+      'That was pathetic, mate',
+      'Not even Yoko could have ruined the song that badly',
+      'You sang like the song owed you money',
+    ],
+  },
+  {
+    min: 30,
+    max: 39,
+    messages: [
+      'Not bad... compared to a car alarm',
+      "You're still worse than Ringo",
+      'You found a few notes. None of them were the right ones',
+      "Technically, you sang. Musically, you didn't",
+    ],
+  },
+  {
+    min: 40,
+    max: 49,
+    messages: [
+      'It could have been worse. Not much worse, but still',
+      'That was close. Just not that close',
+      'A few notes survived',
+      'At least you got the duration right',
+    ],
+  },
+  {
+    min: 50,
+    max: 59,
+    messages: [
+      "Not too bad, but don't get carried away",
+      "There's hope. Not much, but there's hope",
+    ],
+  },
+  {
+    min: 60,
+    max: 69,
+    messages: [
+      'Pretty decent',
+      "The Beatles probably wouldn't sue you",
+      "You're starting to understand what the song was supposed to sound like",
+    ],
+  },
+  {
+    min: 70,
+    max: 79,
+    messages: [
+      "You've almost got it",
+      'This is starting to sound like the real thing',
+      'Good performance. Ringo would be mildly proud',
+      'You came dangerously close to doing it well',
+    ],
+  },
+  {
+    min: 80,
+    max: 89,
+    messages: [
+      "Very good. Now we're getting somewhere",
+      "Lennon probably wouldn't complain too much",
+      "You survived the Beatles' judgment",
+    ],
+  },
+  {
+    min: 90,
+    max: 96,
+    messages: [
+      "Almost perfect. Don't ruin it now",
+      'Very close to earning a place at Abbey Road',
+      'This is no longer embarrassing',
+    ],
+  },
+  {
+    min: 97,
+    max: 99,
+    messages: [
+      'Brilliant. All you were missing was the suit and the mop-top',
+      'The Beatles might actually have let you into the rehearsal',
+      'Almost perfect. Even Lennon would keep quiet',
+      'That sounded suspiciously professional',
+    ],
+  },
+  {
+    min: 100,
+    max: 100,
+    messages: [
+      "You've unlocked the fifth Beatle",
+      'Not even the Beatles could have done it better',
+      'Abbey Road is waiting for you',
+    ],
+  },
+];
+
+function getBeatlesVerdict(
+  accuracy: number,
+): string {
+  const percent = Math.min(
+    Math.max(Math.round(accuracy * 100), 0),
+    100,
+  );
+  const verdictGroup =
+    BEATLES_VERDICTS.find(
+      (group) => percent >= group.min && percent <= group.max,
+    ) ?? BEATLES_VERDICTS[0];
+  const messageIndex = Math.floor(
+    Math.random() * verdictGroup.messages.length,
+  );
+
+  return verdictGroup.messages[messageIndex];
+}
 
 function transposeNotes(
   notes: NoteEvent[],
@@ -238,6 +377,10 @@ export function PracticePage({
   );
   const [playbackRate, setPlaybackRate] = useState(1);
   const [isRepeating, setIsRepeating] = useState(false);
+  const [verdictMessage, setVerdictMessage] =
+    useState<string | null>(null);
+  const [isVerdictVisible, setIsVerdictVisible] =
+    useState(false);
 
   const player = useAudioPlayer();
   const {
@@ -296,6 +439,16 @@ export function PracticePage({
       activeTrack.id,
       vocalTracks,
     ],
+  );
+
+  const chordSourceTracks = useMemo(
+    () => getChordSourceTracks(song.tracks),
+    [song.tracks],
+  );
+
+  const chordSegments = useMemo(
+    () => detectChordSegmentsFromTracks(chordSourceTracks),
+    [chordSourceTracks],
   );
 
   const midiPlaybackNotes = useMemo<MidiPlaybackNote[]>(
@@ -548,6 +701,31 @@ export function PracticePage({
     activeTrack.notes,
   ]);
 
+  useEffect(() => {
+    if (!practiceSession.isFinished) {
+      setIsVerdictVisible(false);
+      return;
+    }
+
+    setVerdictMessage(
+      getBeatlesVerdict(
+        practiceSession.summary.globalAccuracy,
+      ),
+    );
+    setIsVerdictVisible(true);
+
+    const timeoutId = window.setTimeout(() => {
+      setIsVerdictVisible(false);
+    }, VERDICT_VISIBLE_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    practiceSession.isFinished,
+    practiceSession.summary.globalAccuracy,
+  ]);
+
   const handlePlayPause =
     async (): Promise<void> => {
       if (isPlaying) {
@@ -572,6 +750,7 @@ export function PracticePage({
     };
 
   const handleRestart = (): void => {
+    setIsVerdictVisible(false);
     restart();
     midiPlayback.reset();
     practiceSession.reset();
@@ -705,7 +884,7 @@ export function PracticePage({
 
             <Text className="practice-subtitle" c="dimmed">
               {song.artist ||
-                'Artista desconocido'}
+                'Unknown artist'}
               {' · '}
               {activeTrack.name}
             </Text>
@@ -729,16 +908,16 @@ export function PracticePage({
             <Tooltip
               label={
                 isRollFullscreen
-                  ? 'Salir de pantalla completa'
-                  : 'Pantalla completa'
+                  ? 'Exit fullscreen'
+                  : 'Fullscreen'
               }
               position="left"
             >
               <Button
                 aria-label={
                   isRollFullscreen
-                    ? 'Salir de pantalla completa'
-                    : 'Ver canvas a pantalla completa'
+                    ? 'Exit fullscreen'
+                    : 'Open canvas fullscreen'
                 }
                 className="practice-roll-fullscreen-button"
                 variant="default"
@@ -809,6 +988,7 @@ export function PracticePage({
                   trackColorById.get(activeTrack.id) ??
                   TRACK_COLORS[0]
                 }
+                chordSegments={chordSegments}
                 lyrics={activeLyrics}
                 livePitchSampleRef={livePitchSampleRef}
                 livePitchSample={practiceSession.pitchSample}
@@ -816,12 +996,12 @@ export function PracticePage({
 
               <Stack className="practice-roll-legend" gap="sm">
                 <Text fw={700} size="sm">
-                  Pista principal
+                  Main track
                 </Text>
 
                 {vocalTracks.length === 0 ? (
                   <Text size="xs" c="dimmed">
-                    No se han detectado pistas vocales.
+                    No vocal tracks detected.
                   </Text>
                 ) : (
                   <Radio.Group
@@ -914,19 +1094,19 @@ export function PracticePage({
             >
               <Stack gap="sm">
                 <Title order={4}>
-                  Configuración
+                  Settings
                 </Title>
 
                 <Text className="practice-section-label">
-                  SINCRONIZACIÓN
+                  SYNCHRONIZATION
                 </Text>
 
                 <div>
                   <Text fw={650} size="sm">
-                    Offset MIDI respecto al MP3
+                    MIDI offset relative to the MP3
                   </Text>
                   <Text size="xs" c="dimmed">
-                    Un valor positivo retrasa las notas MIDI
+                    A positive value delays the MIDI notes
                   </Text>
                 </div>
 
@@ -953,8 +1133,8 @@ export function PracticePage({
 
                 <NumberInput
                   className="practice-input"
-                  label="Escala temporal MIDI"
-                  description="100.00% hace que el MIDI un 0.20 % más largo"
+                  label="MIDI time scale"
+                  description="100.00% keeps the MIDI at its original length"
                   value={midiTimeScale * 100}
                   onChange={(value) => {
                     setMidiTimeScale(
@@ -970,8 +1150,8 @@ export function PracticePage({
 
                 <NumberInput
                   className="practice-input"
-                  label="Compensación del micrófono"
-                  description="Corrige la latencia de entrada"
+                  label="Microphone compensation"
+                  description="Corrects input latency"
                   value={latencyCompensationMs}
                   onChange={(value) => {
                     setLatencyCompensationMs(
@@ -986,8 +1166,8 @@ export function PracticePage({
 
                 <NumberInput
                   className="practice-input"
-                  label="Tolerancia de afinación"
-                  description="Sólo notas; equivale a medio semitono"
+                  label="Pitch tolerance"
+                  description="Notes only; equivalent to half a semitone"
                   value={pitchToleranceCents}
                   onChange={(value) => {
                     setPitchToleranceCents(
@@ -1010,6 +1190,17 @@ export function PracticePage({
             summary={
               practiceSession.summary
             }
+          />
+        )}
+
+        {verdictMessage && (
+          <BeatlesVerdictOverlay
+            summary={practiceSession.summary}
+            message={verdictMessage}
+            visible={isVerdictVisible}
+            onClose={() => {
+              setIsVerdictVisible(false);
+            }}
           />
         )}
 

@@ -14,6 +14,13 @@ export interface PitchSample {
   centsFromNearestNote: number | null;
 }
 
+export interface ChordSegment {
+  startSeconds: number;
+  endSeconds: number;
+  chord: string;
+  confidence: number;
+}
+
 export interface ScoringConfig {
   pitchToleranceCents: number;
   minimumClarity: number;

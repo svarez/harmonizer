@@ -31,11 +31,11 @@ export function ResultsPanel({
             c="indigo.3"
             tt="uppercase"
           >
-            Sesión terminada
+            Session complete
           </Text>
 
           <Title order={2}>
-            Resultado: {percentage(
+            Result: {percentage(
               summary.globalAccuracy,
             )}
           </Title>
@@ -43,7 +43,7 @@ export function ResultsPanel({
 
         <Stack gap="xs">
           <Group justify="space-between">
-            <Text>Precisión global</Text>
+            <Text>Overall accuracy</Text>
             <Text fw={700}>
               {percentage(
                 summary.globalAccuracy,
@@ -60,7 +60,7 @@ export function ResultsPanel({
         <SimpleGrid cols={{ base: 1, sm: 3 }}>
           <Paper withBorder p="md">
             <Text size="sm" c="dimmed">
-              Afinación
+              Pitch
             </Text>
             <Text size="xl" fw={700}>
               {percentage(
@@ -71,7 +71,7 @@ export function ResultsPanel({
 
           <Paper withBorder p="md">
             <Text size="sm" c="dimmed">
-              Ritmo
+              Rhythm
             </Text>
             <Text size="xl" fw={700}>
               {percentage(
@@ -82,7 +82,7 @@ export function ResultsPanel({
 
           <Paper withBorder p="md">
             <Text size="sm" c="dimmed">
-              Notas acertadas
+              Correct notes
             </Text>
             <Text size="xl" fw={700}>
               {summary.correctNotes} /{' '}
@@ -93,11 +93,11 @@ export function ResultsPanel({
 
         <Group>
           <Text c="green">
-            Correctas: {summary.correctNotes}
+            Correct: {summary.correctNotes}
           </Text>
 
           <Text c="red">
-            Falladas: {summary.incorrectNotes}
+            Missed: {summary.incorrectNotes}
           </Text>
         </Group>
       </Stack>

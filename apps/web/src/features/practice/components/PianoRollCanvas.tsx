@@ -11,6 +11,7 @@ import type {
 
 import type {
   NoteResult,
+  ChordSegment,
   PitchSample,
 } from '../types';
 import {
@@ -30,6 +31,7 @@ interface PianoRollCanvasProps {
   midiOffsetMs: number;
   midiTimeScale: number;
   mainTrackColor?: string;
+  chordSegments?: ChordSegment[];
   lyrics?: SyncedLyricWord[];
   livePitchSample: PitchSample | null;
   livePitchSampleRef?: RefObject<PitchSample | null>;
@@ -50,6 +52,9 @@ const MIN_LYRIC_SCALE_GAP_SECONDS = 0.24;
 const MAX_LYRIC_PIXELS_PER_SECOND = 275;
 const LYRIC_LABEL_HEIGHT = 24;
 const LYRIC_LABEL_GAP = 5;
+const CHORD_LANE_HEIGHT = 34;
+const CHORD_BOUNDARY_COLOR = 'rgba(20, 184, 166, 0.42)';
+const CHORD_ACTIVE_COLOR = '#5eead4';
 const VOICE_HISTORY_SECONDS = 240;
 const MAX_VOICE_TRAIL_POINTS = 1200;
 const VOICE_SAMPLE_MIN_GAP_MS = 70;
@@ -264,6 +269,7 @@ export function PianoRollCanvas({
   midiOffsetMs,
   midiTimeScale,
   mainTrackColor = '#2f7cff',
+  chordSegments = [],
   lyrics = [],
   livePitchSample,
   livePitchSampleRef: externalLivePitchSampleRef,
@@ -413,6 +419,101 @@ export function PianoRollCanvas({
           context.fillStyle = '#a9abb5';
           context.fillText(formatTime(time), x + 5, 7);
         }
+      }
+
+      if (chordSegments.length > 0) {
+        context.save();
+
+        context.fillStyle = 'rgba(6, 8, 12, 0.72)';
+        context.fillRect(0, 0, canvasWidth, CHORD_LANE_HEIGHT);
+
+        for (const segment of chordSegments) {
+          const adjustedStart =
+            segment.startSeconds * midiTimeScale +
+            offsetSeconds;
+          const adjustedEnd =
+            segment.endSeconds * midiTimeScale +
+            offsetSeconds;
+          const x =
+            playheadX +
+            (adjustedStart - audioTime) *
+              pixelsPerSecond;
+          const endX =
+            playheadX +
+            (adjustedEnd - audioTime) *
+              pixelsPerSecond;
+
+          if (endX < 0 || x > canvasWidth) {
+            continue;
+          }
+
+          const isActive =
+            audioTime >= adjustedStart && audioTime < adjustedEnd;
+          const visibleStartX = Math.max(x, 0);
+          const visibleEndX = Math.min(endX, canvasWidth);
+          const labelText = segment.chord;
+
+          if (x >= 0 && x <= canvasWidth) {
+            context.beginPath();
+            context.moveTo(x, 0);
+            context.lineTo(x, canvasHeight);
+            context.strokeStyle = isActive
+              ? 'rgba(94, 234, 212, 0.78)'
+              : CHORD_BOUNDARY_COLOR;
+            context.lineWidth = isActive ? 1.7 : 1;
+            context.stroke();
+          }
+
+          context.font = isActive
+            ? '800 13px Inter, sans-serif'
+            : '750 12px Inter, sans-serif';
+          context.textBaseline = 'top';
+
+          const labelWidth = Math.ceil(
+            context.measureText(labelText).width + 18,
+          );
+          const labelX = Math.min(
+            Math.max(
+              visibleStartX + 6,
+              6,
+            ),
+            Math.max(visibleEndX - labelWidth - 6, 6),
+          );
+
+          if (
+            labelX + labelWidth < 0 ||
+            labelX > canvasWidth ||
+            visibleEndX - visibleStartX < 18
+          ) {
+            continue;
+          }
+
+          context.beginPath();
+          context.roundRect(labelX, 6, labelWidth, 22, 6);
+          context.fillStyle = isActive
+            ? 'rgba(20, 184, 166, 0.92)'
+            : 'rgba(12, 18, 25, 0.88)';
+          context.fill();
+          context.strokeStyle = isActive
+            ? 'rgba(153, 246, 228, 0.78)'
+            : 'rgba(94, 234, 212, 0.24)';
+          context.lineWidth = 1;
+          context.stroke();
+
+          context.fillStyle = isActive
+            ? '#f8fffd'
+            : CHORD_ACTIVE_COLOR;
+          context.fillText(labelText, labelX + 9, 10);
+        }
+
+        context.beginPath();
+        context.moveTo(0, CHORD_LANE_HEIGHT);
+        context.lineTo(canvasWidth, CHORD_LANE_HEIGHT);
+        context.strokeStyle = 'rgba(94, 234, 212, 0.18)';
+        context.lineWidth = 1;
+        context.stroke();
+
+        context.restore();
       }
 
       for (
@@ -853,8 +954,8 @@ export function PianoRollCanvas({
           context.font = '11px Inter, sans-serif';
           context.fillText(
             displayMidi > maxMidi
-              ? 'por encima'
-              : 'por debajo',
+              ? 'above'
+              : 'below',
             latestVisiblePoint.x + liveRadius + 8,
             pitchY + 16,
           );
@@ -956,6 +1057,44 @@ export function PianoRollCanvas({
         context.restore();
       }
 
+      if (chordSegments.length > 0) {
+        context.save();
+
+        for (const segment of chordSegments) {
+          const adjustedStart =
+            segment.startSeconds * midiTimeScale +
+            offsetSeconds;
+          const adjustedEnd =
+            segment.endSeconds * midiTimeScale +
+            offsetSeconds;
+          const x =
+            playheadX +
+            (adjustedStart - audioTime) *
+              pixelsPerSecond;
+
+          if (
+            x < 0 ||
+            x > canvasWidth
+          ) {
+            continue;
+          }
+
+          const isActive =
+            audioTime >= adjustedStart && audioTime < adjustedEnd;
+
+          context.beginPath();
+          context.moveTo(x, 0);
+          context.lineTo(x, canvasHeight);
+          context.strokeStyle = isActive
+            ? 'rgba(94, 234, 212, 0.88)'
+            : CHORD_BOUNDARY_COLOR;
+          context.lineWidth = isActive ? 1.8 : 1;
+          context.stroke();
+        }
+
+        context.restore();
+      }
+
       context.save();
       context.shadowBlur = 10;
       context.shadowColor = 'rgba(250, 204, 21, 0.45)';
@@ -986,7 +1125,8 @@ export function PianoRollCanvas({
         playheadX + labelGap + labelWidth <= canvasWidth - 8
           ? playheadX + labelGap
           : Math.max(playheadX - labelGap - labelWidth, 8);
-      const labelY = 8;
+      const labelY =
+        chordSegments.length > 0 ? CHORD_LANE_HEIGHT + 8 : 8;
 
       context.beginPath();
       context.roundRect(
@@ -1022,6 +1162,7 @@ export function PianoRollCanvas({
     midiOffsetMs,
     midiTimeScale,
     mainTrackColor,
+    chordSegments,
     lyrics,
     minMidi,
     notes,

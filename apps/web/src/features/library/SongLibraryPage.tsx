@@ -94,7 +94,7 @@ export function SongLibraryPage({
         setError(
           caughtError instanceof Error
             ? caughtError.message
-            : 'No se ha podido cargar la biblioteca',
+            : 'Could not load the library',
         );
       } finally {
         setLoading(false);
@@ -119,7 +119,7 @@ export function SongLibraryPage({
           setError(
             caughtError instanceof Error
               ? caughtError.message
-              : 'No se ha podido cargar la biblioteca',
+              : 'Could not load the library',
           );
         }
       } finally {
@@ -153,7 +153,7 @@ export function SongLibraryPage({
       setError(
         caughtError instanceof Error
           ? caughtError.message
-          : 'No se ha podido abrir la canción',
+          : 'Could not open the song',
       );
     } finally {
       setOpeningSongId(null);
@@ -164,7 +164,7 @@ export function SongLibraryPage({
     songSummary: SongSummary,
   ): Promise<void> => {
     const confirmed = window.confirm(
-      `¿Eliminar "${songSummary.title}" de la biblioteca? Esta acción también borrará sus archivos MP3 y MIDI.`,
+      `Delete "${songSummary.title}" from the library? This will also remove its MP3 and MIDI files.`,
     );
 
     if (!confirmed) {
@@ -186,7 +186,7 @@ export function SongLibraryPage({
       setError(
         caughtError instanceof Error
           ? caughtError.message
-          : 'No se ha podido eliminar la canción',
+          : 'Could not delete the song',
       );
     } finally {
       setDeletingSongId(null);
@@ -221,7 +221,7 @@ export function SongLibraryPage({
       setError(
         caughtError instanceof Error
           ? caughtError.message
-          : 'No se ha podido actualizar la portada',
+          : 'Could not update the cover',
       );
     } finally {
       setUpdatingCoverSongId(null);
@@ -237,7 +237,7 @@ export function SongLibraryPage({
 
     if (!token) {
       setAdminTokenError(
-        'Introduce la clave de administrador',
+        'Enter the admin password',
       );
 
       return;
@@ -284,7 +284,7 @@ export function SongLibraryPage({
                 variant="light"
                 onClick={onAdminLogout}
               >
-                Salir admin
+                Log out admin
               </Button>
             ) : (
               <Button
@@ -305,13 +305,13 @@ export function SongLibraryPage({
               setAdminModalOpened(false);
               setAdminTokenError(null);
             }}
-            title="Acceso admin"
+            title="Admin access"
             centered
           >
             <form onSubmit={handleAdminSubmit}>
               <Stack gap="md">
                 <PasswordInput
-                  label="Clave"
+                  label="Password"
                   value={adminTokenInput}
                   error={adminTokenError}
                   autoFocus
@@ -331,11 +331,11 @@ export function SongLibraryPage({
                       setAdminTokenError(null);
                     }}
                   >
-                    Cancelar
+                    Cancel
                   </Button>
 
                   <Button type="submit">
-                    Entrar
+                    Enter
                   </Button>
                 </Group>
               </Stack>
@@ -357,14 +357,14 @@ export function SongLibraryPage({
                   void loadSongs();
                 }}
               >
-                Volver a intentar
+                Try again
               </Button>
             </Stack>
           </Alert>
         )}
 
         {notice && !error && (
-          <Alert color="yellow" title="Canción no disponible">
+          <Alert color="yellow" title="Song unavailable">
             {notice}
           </Alert>
         )}
@@ -373,16 +373,16 @@ export function SongLibraryPage({
           <Group justify="center" py="xl">
             <Loader />
             <Text>
-              Cargando biblioteca...
+              Loading library...
             </Text>
           </Group>
         ) : songs.length === 0 ? (
           <Alert
             color="blue"
-            title="No hay canciones"
+            title="No songs yet"
           >
-            Carga la primera canción mediante
-            Postman usando POST /api/songs.
+            Upload the first song with Postman using
+            POST /api/songs.
           </Alert>
         ) : (
           <SimpleGrid

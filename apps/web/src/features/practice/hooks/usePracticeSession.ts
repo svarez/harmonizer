@@ -170,12 +170,12 @@ export function usePracticeSession({
       }
 
       /*
-       * Offset positivo:
-       * retrasa las notas MIDI respecto al MP3.
+       * Positive offset:
+       * delays MIDI notes relative to the MP3.
        *
-       * Latencia:
-       * retrocede el instante de evaluación para compensar
-       * el retardo del micrófono y del procesamiento.
+       * Latency:
+       * moves the evaluation time back to compensate
+       * for microphone and processing delay.
        */
       const evaluationTime =
         (audio.currentTime -

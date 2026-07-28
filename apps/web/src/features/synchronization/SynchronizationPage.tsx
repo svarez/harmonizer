@@ -482,7 +482,7 @@ export function SynchronizationPage({
       setError(
         caughtError instanceof Error
           ? caughtError.message
-          : 'No se han podido guardar los cambios',
+          : 'Could not save changes',
       );
     } finally {
       setSaving(false);
@@ -515,7 +515,7 @@ export function SynchronizationPage({
               }}
               mb="md"
             >
-              ← Biblioteca
+              ← Library
             </Button>
 
             <Text
@@ -524,7 +524,7 @@ export function SynchronizationPage({
               c="indigo.3"
               tt="uppercase"
             >
-              Sincronizar
+              Synchronize
             </Text>
 
             <Title order={1}>
@@ -539,7 +539,7 @@ export function SynchronizationPage({
               void handleSave();
             }}
           >
-            Guardar
+            Save
           </Button>
         </Group>
 
@@ -565,7 +565,7 @@ export function SynchronizationPage({
         <Paper withBorder radius="md" p="md">
           <Stack gap="sm">
             <Slider
-              aria-label="Posición de reproducción"
+              aria-label="Playback position"
               value={currentTime}
               min={0}
               max={Math.max(audioDuration, 0)}
@@ -596,7 +596,7 @@ export function SynchronizationPage({
                     setCurrentTime(0);
                   }}
                 >
-                  Reiniciar
+                  Restart
                 </Button>
 
                 <Button
@@ -604,7 +604,7 @@ export function SynchronizationPage({
                     void handlePlayPause();
                   }}
                 >
-                  {isPlaying ? 'Pausar' : 'Reproducir'}
+                  {isPlaying ? 'Pause' : 'Play'}
                 </Button>
               </Group>
 
@@ -618,10 +618,10 @@ export function SynchronizationPage({
         <SimpleGrid cols={{ base: 1, md: 2 }}>
           <Paper withBorder radius="md" p="lg">
             <Stack gap="md">
-              <Title order={4}>Ajuste MIDI</Title>
+              <Title order={4}>MIDI adjustment</Title>
 
               <NumberInput
-                label="Desplazamiento MIDI"
+                label="MIDI shift"
                 suffix=" ms"
                 value={midiOffsetMs}
                 onChange={(value) => {
@@ -633,7 +633,7 @@ export function SynchronizationPage({
               />
 
               <NumberInput
-                label="Escala temporal"
+                label="Time scale"
                 value={midiTimeScale}
                 onChange={(value) => {
                   setMidiTimeScale(Number(value) || 1);
@@ -652,14 +652,14 @@ export function SynchronizationPage({
                     setMidiTimeScale(1);
                   }}
                 >
-                  Restablecer
+                  Reset
                 </Button>
 
                 <Button
                   variant="light"
                   onClick={handleAutoFitEnd}
                 >
-                  Ajustar final automáticamente
+                  Auto-fit end
                 </Button>
               </Group>
             </Stack>
@@ -667,7 +667,7 @@ export function SynchronizationPage({
 
           <Paper withBorder radius="md" p="lg">
             <Stack gap="md">
-              <Title order={4}>Medidas</Title>
+              <Title order={4}>Measurements</Title>
 
               <Group justify="space-between">
                 <Text c="dimmed">Zoom</Text>
@@ -683,21 +683,21 @@ export function SynchronizationPage({
               </Group>
 
               <Group justify="space-between">
-                <Text c="dimmed">Duración MIDI</Text>
+                <Text c="dimmed">MIDI duration</Text>
                 <Text ff="monospace">
                   {adjustedMidiDurationSeconds.toFixed(2)} s
                 </Text>
               </Group>
 
               <Group justify="space-between">
-                <Text c="dimmed">Final MIDI ajustado</Text>
+                <Text c="dimmed">Adjusted MIDI end</Text>
                 <Text ff="monospace">
                   {adjustedMidiEndSeconds.toFixed(2)} s
                 </Text>
               </Group>
 
               <Group justify="space-between">
-                <Text c="dimmed">Duración MP3</Text>
+                <Text c="dimmed">MP3 duration</Text>
                 <Text ff="monospace">
                   {audioDuration.toFixed(2)} s
                 </Text>

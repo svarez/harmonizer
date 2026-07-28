@@ -68,10 +68,10 @@ export function usePitchDetection(
           visualCallbackRef.current?.(newSample);
 
           /*
-           * La puntuación recibe todas las muestras.
-           * El canvas recibe todas las muestras por ref.
-           * React se actualiza unas 10 veces
-           * por segundo para no renderizar innecesariamente.
+           * Scoring receives every sample.
+           * The canvas receives every sample by ref.
+           * React updates about 10 times per second
+           * to avoid unnecessary renders.
            */
           const now = performance.now();
 
@@ -87,7 +87,7 @@ export function usePitchDetection(
       const message =
         caughtError instanceof Error
           ? caughtError.message
-          : 'No se ha podido activar el micrófono';
+          : 'Could not turn on the microphone';
 
       setError(message);
       setStatus('error');

@@ -71,7 +71,7 @@ export function PlayerControls({
             variant="default"
             onClick={onRestart}
           >
-            Reiniciar
+            Restart
           </Button>
 
           <Button
@@ -87,7 +87,7 @@ export function PlayerControls({
 
           <Button
             className="practice-button practice-button--play"
-            aria-label={isPlaying ? 'Pausar' : 'Reproducir'}
+            aria-label={isPlaying ? 'Pause' : 'Play'}
             onClick={() => {
               void onPlayPause();
             }}
@@ -129,7 +129,7 @@ export function PlayerControls({
 
           <Slider
             className="practice-player__slider"
-            aria-label="Posición de reproducción"
+            aria-label="Playback position"
             value={currentTime}
             min={0}
             max={Math.max(duration, 0)}
@@ -178,7 +178,7 @@ export function PlayerControls({
             </Text>
             <Slider
               className="practice-player__volume"
-              aria-label="Volumen del MP3"
+              aria-label="MP3 volume"
               value={audioVolume}
               min={0}
               max={100}
@@ -192,7 +192,7 @@ export function PlayerControls({
             </Text>
             <Slider
               className="practice-player__volume practice-player__volume--mic"
-              aria-label="Sensibilidad del micrófono"
+              aria-label="Microphone sensitivity"
               value={micSensitivity}
               min={0}
               max={100}
@@ -204,7 +204,7 @@ export function PlayerControls({
 
         <Stack className="practice-player__speed" gap={4}>
           <Text size="xs" c="dimmed">
-            Velocidad
+            Speed
           </Text>
           <NumberInput
             className="practice-speed-input"
@@ -228,7 +228,7 @@ export function PlayerControls({
 
         <Stack className="practice-player__repeat" gap={4}>
           <Text size="xs" c="dimmed">
-            Repetir
+            Repeat
           </Text>
           <Button
             aria-pressed={isRepeating}

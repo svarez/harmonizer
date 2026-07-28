@@ -60,7 +60,7 @@ export class PitchDetectorService {
 
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error(
-        'El navegador no permite acceder al micrófono',
+        'The browser does not allow microphone access',
       );
     }
 

@@ -25,9 +25,9 @@ const STATUS_LABELS: Record<
   MicrophoneStatus,
   string
 > = {
-  idle: 'Desactivado',
-  requesting: 'Solicitando permiso',
-  running: 'Escuchando',
+  idle: 'Off',
+  requesting: 'Requesting permission',
+  running: 'Listening',
   error: 'Error',
 };
 
@@ -63,7 +63,7 @@ export function LivePitchIndicator({
         <div className="practice-microphone__intro">
           <Group gap="md" wrap="nowrap">
             <span className="practice-microphone__small-icon" />
-            <Title order={4}>Micrófono</Title>
+            <Title order={4}>Microphone</Title>
             <Badge
               className="practice-microphone__badge"
               color={
@@ -79,7 +79,7 @@ export function LivePitchIndicator({
           </Group>
 
           <Text size="sm" c="dimmed">
-            Actívalo para detectar tu afinación
+            Turn it on to detect your pitch
           </Text>
 
           <Button
@@ -90,8 +90,8 @@ export function LivePitchIndicator({
           >
             <span className="practice-microphone__button-icon" />
             {isRunning
-              ? 'Desactivar micrófono'
-              : 'Activar micrófono'}
+              ? 'Turn microphone off'
+              : 'Turn microphone on'}
           </Button>
         </div>
 
@@ -102,8 +102,8 @@ export function LivePitchIndicator({
             type="button"
             aria-label={
               isRunning
-                ? 'Desactivar micrófono'
-                : 'Activar micrófono'
+                ? 'Turn microphone off'
+                : 'Turn microphone on'
             }
             disabled={isRequesting}
             onClick={handleToggleMicrophone}
@@ -115,7 +115,7 @@ export function LivePitchIndicator({
         <Group className="practice-microphone__stats" grow>
           <div className="practice-microphone__stat">
             <Text className="practice-microphone__stat-label">
-              Nota detectada
+              Detected note
             </Text>
             <Text className="practice-microphone__stat-value">
               {sample?.noteName ?? '—'}
@@ -124,7 +124,7 @@ export function LivePitchIndicator({
 
           <div className="practice-microphone__stat">
             <Text className="practice-microphone__stat-label">
-              Frecuencia
+              Frequency
             </Text>
             <Text className="practice-microphone__stat-value">
               {sample?.frequency
@@ -135,7 +135,7 @@ export function LivePitchIndicator({
 
           <div className="practice-microphone__stat">
             <Text className="practice-microphone__stat-label">
-              Claridad
+              Clarity
             </Text>
             <Text className="practice-microphone__stat-value">
               {sample
@@ -146,7 +146,7 @@ export function LivePitchIndicator({
 
           <div className="practice-microphone__stat">
             <Text className="practice-microphone__stat-label">
-              Desviación
+              Deviation
             </Text>
             <Text className="practice-microphone__stat-value">
               {sample?.centsFromNearestNote !== null &&
@@ -166,7 +166,7 @@ export function LivePitchIndicator({
         )}
 
         <Group className="practice-microphone__octave">
-          <Text>OCTAVA VOCAL AUTOMÁTICA</Text>
+          <Text>AUTOMATIC VOCAL OCTAVE</Text>
           <Text>0</Text>
           <Text>•</Text>
           <Text>E3 - A4</Text>
