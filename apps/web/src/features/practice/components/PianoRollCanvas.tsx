@@ -45,19 +45,20 @@ interface PianoRollSupportingTrack {
 const PIXELS_PER_SECOND = 190;
 const PLAYHEAD_POSITION = 0.3;
 const TIME_MARK_INTERVAL_SECONDS = 1;
-const LYRICS_LANE_HEIGHT = 70;
 const LYRIC_COLLISION_PADDING = 8;
 const MIN_LYRIC_SCALE_GAP_SECONDS = 0.24;
 const MAX_LYRIC_PIXELS_PER_SECOND = 275;
+const LYRIC_LABEL_HEIGHT = 24;
+const LYRIC_LABEL_GAP = 5;
 const VOICE_HISTORY_SECONDS = 240;
 const MAX_VOICE_TRAIL_POINTS = 1200;
-const VOICE_SAMPLE_MIN_GAP_MS = 110;
+const VOICE_SAMPLE_MIN_GAP_MS = 70;
 const LIVE_SAMPLE_MAX_AGE_MS = 160;
-const LIVE_POINT_HOLD_MS = 1800;
 const VOICE_TRAIL_FADE_MS = 4500;
-const VOICE_HISTORY_BASE_OPACITY = 0.035;
-const VOICE_HISTORY_RECENT_OPACITY = 0.18;
-const VOICE_SEGMENT_MAX_GAP_SECONDS = 0.8;
+const VOICE_HISTORY_BASE_OPACITY = 0.12;
+const VOICE_HISTORY_RECENT_OPACITY = 0.42;
+const VOICE_BUCKET_SECONDS = 0.1;
+const VOICE_BUCKET_DOMINANCE = 0.55;
 const SUPPORTING_TRACK_COLORS = [
   '#8b5cf6',
   '#22c1c8',
@@ -71,8 +72,24 @@ interface VoiceTrailPoint {
   midi: number;
   clarity: number;
   intensity: number;
-  radius: number;
   timestampMs: number;
+}
+
+interface VoiceTrailBucket {
+  bucketIndex: number;
+  startSongTime: number;
+  endSongTime: number;
+  midi: number;
+  clarity: number;
+  intensity: number;
+  ageMs: number;
+}
+
+interface NoteLayout {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 function findReferenceMidi(
@@ -107,6 +124,37 @@ function findReferenceMidi(
   return nearestNote?.midi ?? fallbackMidi;
 }
 
+function findReferenceNoteId(
+  notes: NoteEvent[],
+  songTime: number,
+): string {
+  const activeNote = notes.find(
+    (note) =>
+      songTime >= note.startSeconds &&
+      songTime <= note.endSeconds,
+  );
+
+  if (activeNote) {
+    return activeNote.id;
+  }
+
+  const nearestNote = notes.reduce<NoteEvent | null>(
+    (nearest, note) => {
+      if (!nearest) {
+        return note;
+      }
+
+      return Math.abs(note.startSeconds - songTime) <
+        Math.abs(nearest.startSeconds - songTime)
+        ? note
+        : nearest;
+    },
+    null,
+  );
+
+  return nearestNote?.id ?? '';
+}
+
 function midiToY(
   midi: number,
   minMidi: number,
@@ -119,15 +167,6 @@ function midiToY(
   );
 
   return (maxMidi - clampedMidi + 0.5) * noteRowHeight;
-}
-
-function intensityToRadius(intensity: number): number {
-  const clampedIntensity = Math.min(
-    Math.max(intensity, 0),
-    1,
-  );
-
-  return 4 + clampedIntensity * 9;
 }
 
 function getHistoryOpacity(
@@ -150,7 +189,7 @@ function getHistoryOpacity(
     VOICE_HISTORY_BASE_OPACITY +
       distanceOpacity * VOICE_HISTORY_BASE_OPACITY +
       ageOpacity * VOICE_HISTORY_RECENT_OPACITY,
-    0.32,
+    0.72,
   );
 }
 
@@ -310,14 +349,11 @@ export function PianoRollCanvas({
       const hasDetectedPitch =
         detectedMidi !== null && detectedMidi !== undefined;
 
-      const lyricsLaneHeight =
-        lyrics.length > 0 ? LYRICS_LANE_HEIGHT : 0;
       const pixelsPerSecond = getLyricAwarePixelsPerSecond(
         context,
         lyrics,
       );
-      const notesCanvasHeight =
-        canvasHeight - lyricsLaneHeight;
+      const notesCanvasHeight = canvasHeight;
       const pitchCount = Math.max(
         maxMidi - minMidi + 1,
         1,
@@ -451,6 +487,8 @@ export function PianoRollCanvas({
         }
       });
 
+      const noteLayoutById = new Map<string, NoteLayout>();
+
       for (const note of notes) {
         const adjustedStart =
           note.startSeconds * midiTimeScale +
@@ -474,6 +512,13 @@ export function PianoRollCanvas({
         const rowIndex = maxMidi - note.midi;
         const y = rowIndex * noteRowHeight + 2;
         const height = Math.max(noteRowHeight - 4, 4);
+
+        noteLayoutById.set(note.id, {
+          x,
+          y,
+          width,
+          height,
+        });
 
         const result = resultsByNoteIdRef.current[note.id];
 
@@ -529,10 +574,6 @@ export function PianoRollCanvas({
           pitchSample.timestampMs - lastTrailTimestampMs >=
             VOICE_SAMPLE_MIN_GAP_MS
         ) {
-          const radius = intensityToRadius(
-            pitchSample.intensity,
-          );
-
           voiceTrailRef.current = [
             ...voiceTrailRef.current,
             {
@@ -540,7 +581,6 @@ export function PianoRollCanvas({
               midi: displayMidi,
               clarity: pitchSample.clarity,
               intensity: pitchSample.intensity,
-              radius,
               timestampMs: pitchSample.timestampMs,
             },
           ];
@@ -580,34 +620,104 @@ export function PianoRollCanvas({
             point.x >= -40 && point.x <= canvasWidth + 40,
         );
 
-      if (visibleTrailPoints.length > 1) {
+      const visibleTrailBuckets = [
+        ...visibleTrailPoints
+          .reduce((buckets, point) => {
+            const bucketIndex = Math.floor(
+              point.songTime / VOICE_BUCKET_SECONDS,
+            );
+            const bucket = buckets.get(bucketIndex) ?? {
+              points: [] as typeof visibleTrailPoints,
+            };
+
+            bucket.points.push(point);
+            buckets.set(bucketIndex, bucket);
+
+            return buckets;
+          }, new Map<number, { points: typeof visibleTrailPoints }>())
+          .entries(),
+      ]
+        .map<VoiceTrailBucket | null>(
+          ([bucketIndex, bucket]) => {
+            const points = bucket.points;
+
+            if (points.length === 0) {
+              return null;
+            }
+
+            const midiCounts = new Map<number, number>();
+            let weightedMidiSum = 0;
+            let weightedMidiSamples = 0;
+            let claritySum = 0;
+            let intensitySum = 0;
+            let youngestAgeMs = Number.POSITIVE_INFINITY;
+
+            for (const point of points) {
+              const roundedMidi = Math.round(point.midi);
+              const weight = Math.max(point.clarity, 0.001);
+
+              midiCounts.set(
+                roundedMidi,
+                (midiCounts.get(roundedMidi) ?? 0) + 1,
+              );
+              weightedMidiSum += point.midi * weight;
+              weightedMidiSamples += weight;
+              claritySum += point.clarity;
+              intensitySum += point.intensity;
+              youngestAgeMs = Math.min(
+                youngestAgeMs,
+                point.ageMs,
+              );
+            }
+
+            const dominantEntry = [
+              ...midiCounts.entries(),
+            ].sort(
+              ([, firstCount], [, secondCount]) =>
+                secondCount - firstCount,
+            )[0];
+            const dominantShare = dominantEntry
+              ? dominantEntry[1] / points.length
+              : 0;
+            const midi =
+              dominantEntry &&
+              dominantShare >= VOICE_BUCKET_DOMINANCE
+                ? dominantEntry[0]
+                : weightedMidiSum / weightedMidiSamples;
+
+            return {
+              bucketIndex,
+              startSongTime:
+                bucketIndex * VOICE_BUCKET_SECONDS,
+              endSongTime:
+                (bucketIndex + 1) * VOICE_BUCKET_SECONDS,
+              midi,
+              clarity: claritySum / points.length,
+              intensity: intensitySum / points.length,
+              ageMs: youngestAgeMs,
+            };
+          },
+        )
+        .filter(
+          (bucket): bucket is VoiceTrailBucket =>
+            bucket !== null,
+        )
+        .sort(
+          (firstBucket, secondBucket) =>
+            firstBucket.bucketIndex -
+            secondBucket.bucketIndex,
+        );
+
+      if (visibleTrailBuckets.length > 0) {
         context.save();
-        context.lineCap = 'round';
-        context.lineJoin = 'round';
 
-        for (
-          let index = 1;
-          index < visibleTrailPoints.length;
-          index += 1
-        ) {
-          const previousPoint = visibleTrailPoints[index - 1];
-          const point = visibleTrailPoints[index];
-          const segmentGapSeconds =
-            point.songTime - previousPoint.songTime;
-
-          if (
-            segmentGapSeconds <= 0 ||
-            segmentGapSeconds > VOICE_SEGMENT_MAX_GAP_SECONDS
-          ) {
-            continue;
-          }
-
+        for (const bucket of visibleTrailBuckets) {
           const songDistanceSeconds = Math.max(
-            midiTime - point.songTime,
+            midiTime - bucket.endSongTime,
             0,
           );
           const opacity = getHistoryOpacity(
-            point.ageMs,
+            bucket.ageMs,
             songDistanceSeconds,
           );
 
@@ -615,66 +725,71 @@ export function PianoRollCanvas({
             continue;
           }
 
-          context.beginPath();
-          context.moveTo(previousPoint.x, previousPoint.y);
-          context.lineTo(point.x, point.y);
-          context.strokeStyle =
-            point.clarity >= MIN_RELIABLE_PITCH_CLARITY
-              ? `rgba(34, 211, 238, ${opacity})`
-              : `rgba(245, 158, 11, ${opacity})`;
-          context.lineWidth = Math.max(
-            Math.min(
-              (previousPoint.radius + point.radius) * 0.28,
-              4,
-            ),
-            1.2,
+          const segmentX =
+            playheadX +
+            (bucket.startSongTime * midiTimeScale +
+              offsetSeconds -
+              audioTime) *
+              pixelsPerSecond;
+          const segmentWidth = Math.max(
+            VOICE_BUCKET_SECONDS *
+              midiTimeScale *
+              pixelsPerSecond -
+              2,
+            7,
           );
-          context.stroke();
+          const segmentY =
+            midiToY(
+              Math.round(bucket.midi),
+              minMidi,
+              maxMidi,
+              noteRowHeight,
+            ) -
+            Math.max(Math.min(noteRowHeight - 5, 8), 4) / 2;
+          const segmentHeight = Math.max(
+            Math.min(noteRowHeight - 5, 8),
+            4,
+          );
+          const reliableSegment =
+            bucket.clarity >= MIN_RELIABLE_PITCH_CLARITY;
+          const segmentColor = reliableSegment
+            ? mainTrackColor
+            : '#f59e0b';
+
+          context.beginPath();
+          context.roundRect(
+            segmentX,
+            segmentY,
+            segmentWidth,
+            segmentHeight,
+            4,
+          );
+          context.globalAlpha =
+            segmentColor === mainTrackColor
+              ? opacity
+              : opacity * 0.8;
+          context.fillStyle = segmentColor;
+          context.fill();
+          context.globalAlpha = 1;
         }
 
         context.restore();
       }
 
-      for (const point of visibleTrailPoints) {
-        const isRecentPoint =
-          point.ageMs <= LIVE_POINT_HOLD_MS;
-
-        if (!isRecentPoint) {
-          continue;
-        }
-
-        const opacity = Math.max(
-          1 - point.ageMs / LIVE_POINT_HOLD_MS,
-          0,
-        );
-
-        context.beginPath();
-        context.arc(
-          point.x,
-          point.y,
-          point.radius * 0.75,
-          0,
-          Math.PI * 2,
-        );
-        context.fillStyle =
-          point.clarity >= MIN_RELIABLE_PITCH_CLARITY
-            ? `rgba(34, 211, 238, ${opacity * 0.55})`
-            : `rgba(245, 158, 11, ${opacity * 0.55})`;
-        context.fill();
-      }
-
       const latestVisiblePoint = visibleTrailPoints.at(-1);
       const shouldDrawLivePoint =
         latestVisiblePoint &&
-        latestVisiblePoint.ageMs <= LIVE_POINT_HOLD_MS;
+        latestVisiblePoint.ageMs <= VOICE_TRAIL_FADE_MS;
 
       if (shouldDrawLivePoint && latestVisiblePoint) {
         const liveOpacity = Math.max(
           1 -
-            latestVisiblePoint.ageMs / LIVE_POINT_HOLD_MS,
+            latestVisiblePoint.ageMs / VOICE_TRAIL_FADE_MS,
           0,
         );
-        const displayMidi = latestVisiblePoint.midi;
+        const displayMidi = Math.round(
+          latestVisiblePoint.midi,
+        );
         const isInsideVisibleRange =
           displayMidi >= minMidi &&
           displayMidi <= maxMidi;
@@ -686,21 +801,22 @@ export function PianoRollCanvas({
           MIN_RELIABLE_PITCH_CLARITY
             ? '#22d3ee'
             : '#f59e0b';
-        const liveRadius = latestVisiblePoint.radius;
+        const liveRadius =
+          5 + latestVisiblePoint.intensity * 7;
 
         context.save();
         context.beginPath();
         context.arc(
           latestVisiblePoint.x,
           pitchY,
-          liveRadius + 6,
+          liveRadius + 5,
           0,
           Math.PI * 2,
         );
         context.fillStyle =
           pitchColor === '#22d3ee'
-            ? `rgba(34, 211, 238, ${liveOpacity * 0.2})`
-            : `rgba(245, 158, 11, ${liveOpacity * 0.2})`;
+            ? `rgba(34, 211, 238, ${liveOpacity * 0.18})`
+            : `rgba(245, 158, 11, ${liveOpacity * 0.16})`;
         context.fill();
 
         context.beginPath();
@@ -713,18 +829,18 @@ export function PianoRollCanvas({
         );
         context.fillStyle =
           pitchColor === '#22d3ee'
-            ? `rgba(34, 211, 238, ${liveOpacity})`
-            : `rgba(245, 158, 11, ${liveOpacity})`;
+            ? `rgba(34, 211, 238, ${liveOpacity * 0.96})`
+            : `rgba(245, 158, 11, ${liveOpacity * 0.86})`;
         context.fill();
         context.lineWidth = 2;
-        context.strokeStyle = `rgba(255, 255, 255, ${liveOpacity})`;
+        context.strokeStyle = `rgba(255, 255, 255, ${liveOpacity * 0.86})`;
         context.stroke();
 
         context.fillStyle = pitchColor;
-        context.font = '12px Inter, sans-serif';
+        context.font = '11px Inter, sans-serif';
         context.textBaseline = 'middle';
 
-        if (liveOpacity > 0.35) {
+        if (liveOpacity > 0.55) {
           context.fillText(
             midiToNoteName(displayMidi),
             latestVisiblePoint.x + liveRadius + 8,
@@ -748,7 +864,6 @@ export function PianoRollCanvas({
       }
 
       if (lyrics.length > 0) {
-        const lyricsTop = notesCanvasHeight;
         const activeWordIndex = lyrics.findLastIndex((word) => {
           const endSeconds =
             word.startSeconds + (word.durationSeconds ?? 0.35);
@@ -756,58 +871,89 @@ export function PianoRollCanvas({
           return audioTime >= word.startSeconds && audioTime < endSeconds;
         });
 
-        context.fillStyle = 'rgba(9, 10, 13, 0.96)';
-        context.fillRect(0, lyricsTop, canvasWidth, lyricsLaneHeight);
-        context.strokeStyle = 'rgba(80, 84, 96, 0.56)';
-        context.lineWidth = 1;
-        context.beginPath();
-        context.moveTo(0, lyricsTop + 0.5);
-        context.lineTo(canvasWidth, lyricsTop + 0.5);
-        context.stroke();
+        context.save();
+        context.textBaseline = 'top';
 
-        const midiByNoteId = new Map(
-          notes.map((note) => [note.id, note.midi]),
-        );
-        const pitchSpan = Math.max(maxMidi - minMidi, 1);
         lyrics.forEach((word, wordIndex) => {
-          const x =
-            playheadX +
-            (word.startSeconds - audioTime) * pixelsPerSecond;
-          const width = Math.max(
-            (word.durationSeconds ?? 0.35) * pixelsPerSecond,
-            22,
-          );
+          const noteLayout =
+            (word.noteId
+              ? noteLayoutById.get(word.noteId)
+              : undefined) ??
+            noteLayoutById.get(
+              findReferenceNoteId(notes, word.startSeconds),
+            );
 
-          if (x + width < 0 || x > canvasWidth) {
+          if (!noteLayout) {
             return;
           }
 
           const isActive = wordIndex === activeWordIndex;
-          const wordMidi = word.noteId
-            ? midiByNoteId.get(word.noteId)
-            : undefined;
-          const normalizedPitch =
-            wordMidi === undefined
-              ? 0.5
-              : (wordMidi - minMidi) / pitchSpan;
-          const pitchOffset =
-            (0.5 - Math.min(Math.max(normalizedPitch, 0), 1)) *
-            18;
-          const textLeft = x + 4;
-          const y = lyricsTop + (isActive ? 21 : 27) + pitchOffset;
+          context.font = isActive
+            ? '800 19px Inter, sans-serif'
+            : '750 15px Inter, sans-serif';
+
+          const labelWidth = Math.max(
+            context.measureText(word.text).width + 14,
+            28,
+          );
+          const x =
+            playheadX +
+            (word.startSeconds - audioTime) * pixelsPerSecond;
+          const labelX = Math.min(
+            Math.max(
+              Math.max(x, noteLayout.x),
+              4,
+            ),
+            Math.max(canvasWidth - labelWidth - 4, 4),
+          );
+          const preferredY =
+            noteLayout.y + noteLayout.height + LYRIC_LABEL_GAP;
+          const labelY =
+            preferredY + LYRIC_LABEL_HEIGHT <= canvasHeight - 6
+              ? preferredY
+              : Math.max(
+                  noteLayout.y -
+                    LYRIC_LABEL_HEIGHT -
+                    LYRIC_LABEL_GAP,
+                  6,
+                );
+
+          if (
+            labelX + labelWidth < 0 ||
+            labelX > canvasWidth
+          ) {
+            return;
+          }
+
+          context.beginPath();
+          context.roundRect(
+            labelX,
+            labelY,
+            labelWidth,
+            LYRIC_LABEL_HEIGHT,
+            6,
+          );
+          context.fillStyle = isActive
+            ? 'rgba(49, 93, 247, 0.92)'
+            : 'rgba(9, 10, 13, 0.82)';
+          context.fill();
+
+          context.strokeStyle = isActive
+            ? 'rgba(177, 196, 255, 0.78)'
+            : 'rgba(90, 94, 108, 0.58)';
+          context.lineWidth = 1;
+          context.stroke();
 
           context.fillStyle = isActive ? '#f6f7fb' : '#8f929b';
-          context.font = isActive
-            ? '800 28px Inter, sans-serif'
-            : '700 20px Inter, sans-serif';
-          context.textBaseline = 'top';
           context.shadowColor = isActive
             ? 'rgba(49, 93, 247, 0.55)'
             : 'transparent';
-          context.shadowBlur = isActive ? 16 : 0;
-          context.fillText(word.text, textLeft, y);
+          context.shadowBlur = isActive ? 10 : 0;
+          context.fillText(word.text, labelX + 7, labelY + 3);
           context.shadowBlur = 0;
         });
+
+        context.restore();
       }
 
       context.save();
@@ -829,35 +975,36 @@ export function PianoRollCanvas({
       context.closePath();
       context.fill();
 
-      const labelX = playheadX + 18;
+      const playheadLabel = formatTime(audioTime);
+      context.font = '700 12px Inter, sans-serif';
+      const labelWidth = Math.ceil(
+        context.measureText(playheadLabel).width + 24,
+      );
+      const labelHeight = 28;
+      const labelGap = 12;
+      const labelX =
+        playheadX + labelGap + labelWidth <= canvasWidth - 8
+          ? playheadX + labelGap
+          : Math.max(playheadX - labelGap - labelWidth, 8);
       const labelY = 8;
 
       context.beginPath();
-      context.roundRect(labelX, labelY, 92, 50, 8);
-      context.fillStyle = 'rgba(13, 15, 20, 0.88)';
+      context.roundRect(
+        labelX,
+        labelY,
+        labelWidth,
+        labelHeight,
+        8,
+      );
+      context.fillStyle = '#0d1017';
       context.fill();
-      context.strokeStyle = 'rgba(80, 84, 96, 0.72)';
+      context.strokeStyle = 'rgba(99, 104, 121, 0.82)';
       context.lineWidth = 1;
       context.stroke();
 
       context.fillStyle = '#facc15';
-      context.font = '700 13px Inter, sans-serif';
       context.textBaseline = 'top';
-      context.fillText(formatTime(audioTime), labelX + 12, labelY + 10);
-
-      context.fillStyle = '#f2f3f7';
-      context.font = '12px Inter, sans-serif';
-      context.fillText('MP3', labelX + 12, labelY + 29);
-
-      if (midiOffsetMs !== 0) {
-        const offsetLabel =
-          midiOffsetMs > 0
-            ? `MIDI +${midiOffsetMs} ms`
-            : `MIDI ${midiOffsetMs} ms`;
-
-        context.fillStyle = '#d4d4d8';
-        context.fillText(offsetLabel, playheadX + 10, 24);
-      }
+      context.fillText(playheadLabel, labelX + 12, labelY + 7);
 
       animationFrameId = requestAnimationFrame(draw);
     };
@@ -883,6 +1030,7 @@ export function PianoRollCanvas({
 
   return (
     <canvas
+      className="practice-piano-roll-canvas"
       ref={canvasRef}
       style={{
         display: 'block',

@@ -29,6 +29,7 @@ export interface Song {
   title: string;
   artist?: string;
   audioUrl: string;
+  coverUrl?: string;
   durationSeconds: number;
   detectedMidiInitialSilenceMs?: number;
   midiOffsetMs: number;
@@ -44,6 +45,7 @@ export interface SongSummary {
   title: string;
   artist?: string;
   audioUrl: string;
+  coverUrl?: string;
   durationSeconds: number;
   detectedMidiInitialSilenceMs?: number;
   midiOffsetMs: number;

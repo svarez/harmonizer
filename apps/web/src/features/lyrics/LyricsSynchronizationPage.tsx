@@ -233,6 +233,24 @@ function suggestTrackLyricsFromMainLyrics(
   );
 }
 
+function ensureDefaultTrackLyrics(
+  lyricsByTrackId: Record<string, SyncedLyricWord[]>,
+  defaultVocalTrackId: string | null,
+  defaultLyrics: SyncedLyricWord[],
+): Record<string, SyncedLyricWord[]> {
+  if (
+    !defaultVocalTrackId ||
+    lyricsByTrackId[defaultVocalTrackId]?.length
+  ) {
+    return lyricsByTrackId;
+  }
+
+  return {
+    ...lyricsByTrackId,
+    [defaultVocalTrackId]: defaultLyrics,
+  };
+}
+
 function lrcTimestampFromDraft(
   draft: string,
 ): number | null {
@@ -1032,19 +1050,31 @@ export function LyricsSynchronizationPage({
   );
 
   const lyricsByTrackIdForSave = useMemo(() => {
-    if (!selectedVocalTrackId) {
-      return trackLyricsById;
-    }
+    const nextLyricsByTrackId = selectedVocalTrackId
+      ? {
+          ...trackLyricsById,
+          [selectedVocalTrackId]: lyrics,
+        }
+      : trackLyricsById;
+    const nextPrimaryLyrics =
+      defaultVocalTrackId
+        ? nextLyricsByTrackId[defaultVocalTrackId] ??
+          savedSong.lyrics
+        : lyrics;
 
-    return {
-      ...trackLyricsById,
-      [selectedVocalTrackId]: lyrics,
-    };
+    return ensureDefaultTrackLyrics(
+      nextLyricsByTrackId,
+      defaultVocalTrackId,
+      nextPrimaryLyrics,
+    );
   }, [
+    defaultVocalTrackId,
     lyrics,
+    savedSong.lyrics,
     selectedVocalTrackId,
     trackLyricsById,
   ]);
+
   const primaryLyrics =
     defaultVocalTrackId
       ? lyricsByTrackIdForSave[defaultVocalTrackId] ??
@@ -1298,22 +1328,11 @@ export function LyricsSynchronizationPage({
     setError(null);
 
     try {
-      const nextLyricsByTrackId = selectedVocalTrackId
-        ? {
-            ...trackLyricsById,
-            [selectedVocalTrackId]: lyrics,
-          }
-        : trackLyricsById;
-      const nextPrimaryLyrics =
-        defaultVocalTrackId
-          ? nextLyricsByTrackId[defaultVocalTrackId] ??
-            savedSong.lyrics
-          : lyrics;
       const updatedSong = await updateSongLyrics(
         song.id,
         {
-          lyrics: nextPrimaryLyrics,
-          lyricsByTrackId: nextLyricsByTrackId,
+          lyrics: primaryLyrics,
+          lyricsByTrackId: lyricsByTrackIdForSave,
         },
       );
 

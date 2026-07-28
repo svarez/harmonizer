@@ -3,7 +3,6 @@ import {
   Button,
   Group,
   Paper,
-  Stack,
   Text,
   Title,
 } from '@mantine/core';
@@ -14,6 +13,7 @@ import type {
 } from '../types';
 
 interface LivePitchIndicatorProps {
+  wide?: boolean;
   status: MicrophoneStatus;
   sample: PitchSample | null;
   error: string | null;
@@ -32,6 +32,7 @@ const STATUS_LABELS: Record<
 };
 
 export function LivePitchIndicator({
+  wide = false,
   status,
   sample,
   error,
@@ -39,81 +40,93 @@ export function LivePitchIndicator({
   onStop,
 }: LivePitchIndicatorProps) {
   const isRunning = status === 'running';
+  const isRequesting = status === 'requesting';
+
+  const handleToggleMicrophone = (): void => {
+    if (isRunning) {
+      void onStop();
+      return;
+    }
+
+    void onStart();
+  };
 
   return (
     <Paper
-      className="practice-card practice-microphone"
+      className={`practice-card practice-microphone${
+        wide ? ' practice-microphone--wide' : ''
+      }`}
       radius="lg"
       p="lg"
     >
-      <Stack gap="md">
-        <Group justify="space-between">
-          <Title order={4}>Micrófono</Title>
-
-          <Badge
-            color={
-              status === 'running'
-                ? 'green'
-                : status === 'error'
-                  ? 'red'
-                  : 'gray'
-            }
-          >
-            {STATUS_LABELS[status]}
-          </Badge>
-        </Group>
-
-        <Group
-          className="practice-microphone__hero"
-          gap="xl"
-          wrap="nowrap"
-        >
-          <div className="practice-microphone__icon">
-            <span />
-          </div>
-
-          <Stack gap="sm" className="practice-microphone__copy">
-            <Text size="sm" c="dimmed">
-              Actívalo para detectar tu afinación
-            </Text>
-
-            <Button
-              className="practice-button practice-microphone__button"
-              variant={isRunning ? 'default' : 'filled'}
-              loading={status === 'requesting'}
-              onClick={() => {
-                if (isRunning) {
-                  void onStop();
-                } else {
-                  void onStart();
-                }
-              }}
+      <div className="practice-microphone__layout">
+        <div className="practice-microphone__intro">
+          <Group gap="md" wrap="nowrap">
+            <span className="practice-microphone__small-icon" />
+            <Title order={4}>Micrófono</Title>
+            <Badge
+              className="practice-microphone__badge"
+              color={
+                status === 'running'
+                  ? 'teal'
+                  : status === 'error'
+                    ? 'red'
+                    : 'gray'
+              }
             >
-              {isRunning
-                ? 'Desactivar micrófono'
-                : 'Activar micrófono'}
-            </Button>
-          </Stack>
-        </Group>
+              {STATUS_LABELS[status]}
+            </Badge>
+          </Group>
 
-        <Group
-          className="practice-microphone__stats"
-          grow
-        >
+          <Text size="sm" c="dimmed">
+            Actívalo para detectar tu afinación
+          </Text>
+
+          <Button
+            className="practice-button practice-microphone__button"
+            variant={isRunning ? 'default' : 'filled'}
+            loading={isRequesting}
+            onClick={handleToggleMicrophone}
+          >
+            <span className="practice-microphone__button-icon" />
+            {isRunning
+              ? 'Desactivar micrófono'
+              : 'Activar micrófono'}
+          </Button>
+        </div>
+
+        <div className="practice-microphone__hero">
+          <div className="practice-microphone__wave" />
+          <button
+            className="practice-microphone__icon"
+            type="button"
+            aria-label={
+              isRunning
+                ? 'Desactivar micrófono'
+                : 'Activar micrófono'
+            }
+            disabled={isRequesting}
+            onClick={handleToggleMicrophone}
+          >
+            <span />
+          </button>
+        </div>
+
+        <Group className="practice-microphone__stats" grow>
           <div className="practice-microphone__stat">
-            <Text size="xs" c="dimmed">
+            <Text className="practice-microphone__stat-label">
               Nota detectada
             </Text>
-            <Text fw={600}>
+            <Text className="practice-microphone__stat-value">
               {sample?.noteName ?? '—'}
             </Text>
           </div>
 
           <div className="practice-microphone__stat">
-            <Text size="xs" c="dimmed">
+            <Text className="practice-microphone__stat-label">
               Frecuencia
             </Text>
-            <Text fw={600}>
+            <Text className="practice-microphone__stat-value">
               {sample?.frequency
                 ? `${sample.frequency.toFixed(1)} Hz`
                 : '—'}
@@ -121,10 +134,10 @@ export function LivePitchIndicator({
           </div>
 
           <div className="practice-microphone__stat">
-            <Text size="xs" c="dimmed">
+            <Text className="practice-microphone__stat-label">
               Claridad
             </Text>
-            <Text fw={600}>
+            <Text className="practice-microphone__stat-value">
               {sample
                 ? `${Math.round(sample.clarity * 100)} %`
                 : '—'}
@@ -132,10 +145,10 @@ export function LivePitchIndicator({
           </div>
 
           <div className="practice-microphone__stat">
-            <Text size="xs" c="dimmed">
+            <Text className="practice-microphone__stat-label">
               Desviación
             </Text>
-            <Text fw={600}>
+            <Text className="practice-microphone__stat-value">
               {sample?.centsFromNearestNote !== null &&
               sample?.centsFromNearestNote !== undefined
                 ? `${Math.round(
@@ -159,7 +172,7 @@ export function LivePitchIndicator({
           <Text>E3 - A4</Text>
           <Text>ⓘ</Text>
         </Group>
-      </Stack>
+      </div>
     </Paper>
   );
 }

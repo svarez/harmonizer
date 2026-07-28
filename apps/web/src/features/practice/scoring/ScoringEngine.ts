@@ -18,12 +18,25 @@ interface NoteAccumulator {
 
   centsErrorSum: number;
   centsErrorSamples: number;
+  weightedMidiSum: number;
+  weightedMidiSamples: number;
+  pitchBuckets: Map<number, PitchBucket>;
 
   firstVoicedTime: number | null;
   lastVoicedTime: number | null;
 
   finalized: boolean;
 }
+
+interface PitchBucket {
+  totalSamples: number;
+  weightedMidiSum: number;
+  weightedMidiSamples: number;
+  midiCounts: Map<number, number>;
+}
+
+const PITCH_BUCKET_SECONDS = 0.1;
+const PITCH_BUCKET_DOMINANCE = 0.55;
 
 export class ScoringEngine {
   private readonly notes: NoteEvent[];
@@ -61,6 +74,9 @@ export class ScoringEngine {
 
         centsErrorSum: 0,
         centsErrorSamples: 0,
+        weightedMidiSum: 0,
+        weightedMidiSamples: 0,
+        pitchBuckets: new Map(),
 
         firstVoicedTime: null,
         lastVoicedTime: null,
@@ -130,9 +146,39 @@ export class ScoringEngine {
           sample.detectedMidi!,
           note.midi,
         );
+      const sampleWeight = Math.max(
+        sample.clarity,
+        0.001,
+      );
 
       const centsError =
         (normalizedDetectedMidi - note.midi) * 100;
+
+      accumulator.weightedMidiSum +=
+        normalizedDetectedMidi * sampleWeight;
+      accumulator.weightedMidiSamples += sampleWeight;
+      const bucketIndex = Math.floor(
+        (songTime - note.startSeconds) /
+          PITCH_BUCKET_SECONDS,
+      );
+      const roundedMidi = Math.round(normalizedDetectedMidi);
+      const bucket =
+        accumulator.pitchBuckets.get(bucketIndex) ?? {
+          totalSamples: 0,
+          weightedMidiSum: 0,
+          weightedMidiSamples: 0,
+          midiCounts: new Map<number, number>(),
+        };
+
+      bucket.totalSamples += 1;
+      bucket.weightedMidiSum +=
+        normalizedDetectedMidi * sampleWeight;
+      bucket.weightedMidiSamples += sampleWeight;
+      bucket.midiCounts.set(
+        roundedMidi,
+        (bucket.midiCounts.get(roundedMidi) ?? 0) + 1,
+      );
+      accumulator.pitchBuckets.set(bucketIndex, bucket);
 
       accumulator.centsErrorSum +=
         Math.abs(centsError);
@@ -183,11 +229,81 @@ export class ScoringEngine {
   ): NoteResult {
     accumulator.finalized = true;
 
-    const pitchAccuracy =
+    const samplePitchAccuracy =
       accumulator.voicedSamples > 0
         ? accumulator.correctPitchSamples /
           accumulator.voicedSamples
         : 0;
+
+    const meanDetectedMidi =
+      accumulator.weightedMidiSamples > 0
+        ? accumulator.weightedMidiSum /
+          accumulator.weightedMidiSamples
+        : null;
+
+    const meanCentsError =
+      meanDetectedMidi !== null
+        ? (meanDetectedMidi - note.midi) * 100
+        : null;
+
+    const meanPitchAccuracy =
+      meanCentsError !== null
+        ? clamp(
+            1 -
+              Math.abs(meanCentsError) /
+                (this.config.pitchToleranceCents * 1.8),
+            0,
+            1,
+          )
+        : 0;
+
+    const pitchBucketResults = [
+      ...accumulator.pitchBuckets.values(),
+    ].map((bucket) => {
+      const dominantEntry = [
+        ...bucket.midiCounts.entries(),
+      ].sort(
+        ([, firstCount], [, secondCount]) =>
+          secondCount - firstCount,
+      )[0];
+      const dominantShare = dominantEntry
+        ? dominantEntry[1] / bucket.totalSamples
+        : 0;
+
+      if (
+        dominantEntry &&
+        dominantShare >= PITCH_BUCKET_DOMINANCE
+      ) {
+        return dominantEntry[0];
+      }
+
+      return bucket.weightedMidiSamples > 0
+        ? bucket.weightedMidiSum / bucket.weightedMidiSamples
+        : null;
+    });
+
+    const evaluatedPitchBuckets =
+      pitchBucketResults.filter(
+        (bucketMidi): bucketMidi is number =>
+          bucketMidi !== null,
+      );
+    const correctPitchBuckets =
+      evaluatedPitchBuckets.filter(
+        (bucketMidi) =>
+          Math.abs((bucketMidi - note.midi) * 100) <=
+          this.config.pitchToleranceCents,
+      );
+    const bucketPitchAccuracy =
+      evaluatedPitchBuckets.length > 0
+        ? correctPitchBuckets.length /
+          evaluatedPitchBuckets.length
+        : 0;
+
+    const pitchAccuracy = Math.max(
+      samplePitchAccuracy,
+      bucketPitchAccuracy,
+      meanPitchAccuracy,
+    );
 
     const coverageAccuracy =
       accumulator.expectedSamples > 0
@@ -237,7 +353,9 @@ export class ScoringEngine {
       rhythmAccuracy * 0.25;
 
     const meanAbsoluteCentsError =
-      accumulator.centsErrorSamples > 0
+      meanCentsError !== null
+        ? Math.abs(meanCentsError)
+        : accumulator.centsErrorSamples > 0
         ? accumulator.centsErrorSum /
           accumulator.centsErrorSamples
         : null;

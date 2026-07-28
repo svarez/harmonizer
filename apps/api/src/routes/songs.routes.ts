@@ -2,12 +2,14 @@ import { Router } from 'express';
 import { z } from 'zod';
 
 import { uploadSongFiles } from '../config/upload.js';
+import { requireAdminAccess } from '../middleware/requireAdminAccess.js';
 
 import {
   createSong,
   deleteSong,
   getSong,
   listSongs,
+  updateSongCover,
   updateSongLyrics,
   updateSongSynchronization,
 } from '../services/song.service.js';
@@ -154,6 +156,9 @@ songsRouter.post(
       const midiFile =
         files?.midiFile?.[0];
 
+      const coverFile =
+        files?.coverImage?.[0];
+
       if (!audioFile || !midiFile) {
         await removeUploadedFiles(
           uploadedFiles,
@@ -173,6 +178,7 @@ songsRouter.post(
         midiOffsetMs: body.midiOffsetMs,
         audioFile,
         midiFile,
+        coverFile,
       });
 
       response.status(201).json(song);
@@ -188,6 +194,7 @@ songsRouter.post(
 
 songsRouter.delete(
   '/:songId',
+  requireAdminAccess,
   async (request, response, next) => {
     try {
       const songId = songIdSchema.parse(
@@ -212,7 +219,68 @@ songsRouter.delete(
 );
 
 songsRouter.patch(
+  '/:songId/cover',
+  requireAdminAccess,
+  uploadSongFiles,
+  async (request, response, next) => {
+    const uploadedFiles =
+      getUploadedFiles(request);
+
+    try {
+      const songId = songIdSchema.parse(
+        request.params.songId,
+      );
+
+      const files = request.files as
+        | Record<
+            string,
+            Express.Multer.File[]
+          >
+        | undefined;
+
+      const coverFile =
+        files?.coverImage?.[0];
+
+      if (!coverFile) {
+        await removeUploadedFiles(
+          uploadedFiles,
+        );
+
+        response.status(400).json({
+          message:
+            'Debes adjuntar coverImage',
+        });
+
+        return;
+      }
+
+      const song = await updateSongCover(
+        songId,
+        coverFile,
+      );
+
+      if (!song) {
+        response.status(404).json({
+          message: 'Canción no encontrada',
+        });
+
+        return;
+      }
+
+      response.json(song);
+    } catch (error) {
+      await removeUploadedFiles(
+        uploadedFiles,
+      );
+
+      next(error);
+    }
+  },
+);
+
+songsRouter.patch(
   '/:songId/synchronization',
+  requireAdminAccess,
   async (request, response, next) => {
     try {
       const songId = songIdSchema.parse(
@@ -247,6 +315,7 @@ songsRouter.patch(
 
 songsRouter.patch(
   '/:songId/lyrics',
+  requireAdminAccess,
   async (request, response, next) => {
     try {
       const songId = songIdSchema.parse(

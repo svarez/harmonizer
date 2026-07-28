@@ -4,6 +4,8 @@ import {
   Container,
   Group,
   Loader,
+  Modal,
+  PasswordInput,
   SimpleGrid,
   Stack,
   Text,
@@ -11,6 +13,7 @@ import {
 } from '@mantine/core';
 
 import {
+  type FormEvent,
   useCallback,
   useEffect,
   useState,
@@ -25,16 +28,29 @@ import {
   deleteSong,
   getSong,
   getSongs,
+  updateSongCover,
 } from '../../api/songsApi';
 
 import { SongCard } from './components/SongCard';
 
 interface SongLibraryPageProps {
+  notice?: string | null;
+  adminAccess?: boolean;
+  onAdminLogin?: (token: string) => void;
+  onAdminLogout?: () => void;
   onSelectSong: (song: Song) => void;
+  onSynchronizeSong?: (song: Song) => void;
+  onSynchronizeLyrics?: (song: Song) => void;
 }
 
 export function SongLibraryPage({
+  notice,
+  adminAccess = false,
+  onAdminLogin,
+  onAdminLogout,
   onSelectSong,
+  onSynchronizeSong,
+  onSynchronizeLyrics,
 }: SongLibraryPageProps) {
   const [songs, setSongs] = useState<
     SongSummary[]
@@ -49,7 +65,19 @@ export function SongLibraryPage({
   const [deletingSongId, setDeletingSongId] =
     useState<string | null>(null);
 
+  const [updatingCoverSongId, setUpdatingCoverSongId] =
+    useState<string | null>(null);
+
   const [error, setError] =
+    useState<string | null>(null);
+
+  const [adminModalOpened, setAdminModalOpened] =
+    useState(false);
+
+  const [adminTokenInput, setAdminTokenInput] =
+    useState('');
+
+  const [adminTokenError, setAdminTokenError] =
     useState<string | null>(null);
 
   const loadSongs = useCallback(
@@ -110,6 +138,7 @@ export function SongLibraryPage({
 
   const handleOpenSong = async (
     songSummary: SongSummary,
+    onOpenSong: (song: Song) => void,
   ): Promise<void> => {
     setOpeningSongId(songSummary.id);
     setError(null);
@@ -119,7 +148,7 @@ export function SongLibraryPage({
         songSummary.id,
       );
 
-      onSelectSong(song);
+      onOpenSong(song);
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -164,29 +193,154 @@ export function SongLibraryPage({
     }
   };
 
+  const handleUpdateCover = async (
+    songSummary: SongSummary,
+    coverImage: File,
+  ): Promise<void> => {
+    setUpdatingCoverSongId(songSummary.id);
+    setError(null);
+
+    try {
+      const updatedSong = await updateSongCover(
+        songSummary.id,
+        coverImage,
+      );
+
+      setSongs((currentSongs) =>
+        currentSongs.map((song) =>
+          song.id === updatedSong.id
+            ? {
+                ...song,
+                coverUrl:
+                  updatedSong.coverUrl,
+              }
+            : song,
+        ),
+      );
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'No se ha podido actualizar la portada',
+      );
+    } finally {
+      setUpdatingCoverSongId(null);
+    }
+  };
+
+  const handleAdminSubmit = (
+    event: FormEvent<HTMLFormElement>,
+  ): void => {
+    event.preventDefault();
+
+    const token = adminTokenInput.trim();
+
+    if (!token) {
+      setAdminTokenError(
+        'Introduce la clave de administrador',
+      );
+
+      return;
+    }
+
+    onAdminLogin?.(token);
+    setAdminModalOpened(false);
+    setAdminTokenInput('');
+    setAdminTokenError(null);
+  };
+
   return (
-    <Container size="xl" py="xl">
-      <Stack gap="xl">
-        <div>
-          <Text
-            size="sm"
-            fw={700}
-            c="indigo.3"
-            tt="uppercase"
+    <div className="library-page">
+      <Container className="library-shell" size="xl">
+        <Stack gap="xl">
+          <Group
+            className="library-header"
+            justify="space-between"
+            align="flex-start"
           >
-            Harmonizer
-          </Text>
+            <div>
+              <Text
+                className="library-kicker"
+                size="sm"
+                fw={700}
+                c="indigo.3"
+                tt="uppercase"
+              >
+                Harmonizer
+              </Text>
 
-          <Title order={1}>
-            Biblioteca de canciones
-          </Title>
+              <Title className="library-title" order={1}>
+                Songs
+              </Title>
 
-          <Text c="dimmed" mt={4}>
-            Selecciona una canción para
-            elegir la pista que quieres
-            practicar.
-          </Text>
-        </div>
+              <Text className="library-subtitle" mt={4}>
+                Select a song to start singing.
+              </Text>
+            </div>
+
+            {adminAccess ? (
+              <Button
+                className="library-admin-button"
+                variant="light"
+                onClick={onAdminLogout}
+              >
+                Salir admin
+              </Button>
+            ) : (
+              <Button
+                className="library-admin-button"
+                variant="default"
+                onClick={() => {
+                  setAdminModalOpened(true);
+                }}
+              >
+                Admin
+              </Button>
+            )}
+          </Group>
+
+          <Modal
+            opened={adminModalOpened}
+            onClose={() => {
+              setAdminModalOpened(false);
+              setAdminTokenError(null);
+            }}
+            title="Acceso admin"
+            centered
+          >
+            <form onSubmit={handleAdminSubmit}>
+              <Stack gap="md">
+                <PasswordInput
+                  label="Clave"
+                  value={adminTokenInput}
+                  error={adminTokenError}
+                  autoFocus
+                  onChange={(event) => {
+                    setAdminTokenInput(
+                      event.currentTarget.value,
+                    );
+                    setAdminTokenError(null);
+                  }}
+                />
+
+                <Group justify="flex-end">
+                  <Button
+                    variant="default"
+                    onClick={() => {
+                      setAdminModalOpened(false);
+                      setAdminTokenError(null);
+                    }}
+                  >
+                    Cancelar
+                  </Button>
+
+                  <Button type="submit">
+                    Entrar
+                  </Button>
+                </Group>
+              </Stack>
+            </form>
+          </Modal>
 
         {error && (
           <Alert
@@ -209,6 +363,12 @@ export function SongLibraryPage({
           </Alert>
         )}
 
+        {notice && !error && (
+          <Alert color="yellow" title="Canción no disponible">
+            {notice}
+          </Alert>
+        )}
+
         {loading ? (
           <Group justify="center" py="xl">
             <Loader />
@@ -226,6 +386,7 @@ export function SongLibraryPage({
           </Alert>
         ) : (
           <SimpleGrid
+            className="library-grid"
             cols={{
               base: 1,
               sm: 2,
@@ -237,22 +398,50 @@ export function SongLibraryPage({
                 key={song.id}
                 song={song}
                 loading={
-                  openingSongId === song.id
+                  openingSongId === song.id ||
+                  updatingCoverSongId === song.id
                 }
                 deleting={
                   deletingSongId === song.id
                 }
                 onOpen={() => {
-                  void handleOpenSong(song);
+                  void handleOpenSong(
+                    song,
+                    onSelectSong,
+                  );
                 }}
                 onDelete={() => {
                   void handleDeleteSong(song);
+                }}
+                onUpdateCover={(coverImage) => {
+                  void handleUpdateCover(
+                    song,
+                    coverImage,
+                  );
+                }}
+                adminAccess={adminAccess}
+                onSynchronize={() => {
+                  if (onSynchronizeSong) {
+                    void handleOpenSong(
+                      song,
+                      onSynchronizeSong,
+                    );
+                  }
+                }}
+                onSynchronizeLyrics={() => {
+                  if (onSynchronizeLyrics) {
+                    void handleOpenSong(
+                      song,
+                      onSynchronizeLyrics,
+                    );
+                  }
                 }}
               />
             ))}
           </SimpleGrid>
         )}
       </Stack>
-    </Container>
+      </Container>
+    </div>
   );
 }

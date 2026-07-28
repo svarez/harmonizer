@@ -16,9 +16,17 @@ interface PlayerControlsProps {
   currentTime: number;
   duration: number;
   playbackSource: 'mp3' | 'midi';
+  audioVolume: number;
+  micSensitivity: number;
+  playbackRate: number;
+  isRepeating: boolean;
   onPlayPause: () => void | Promise<void>;
   onRestart: () => void;
   onSeek: (timeSeconds: number) => void;
+  onAudioVolumeChange: (volume: number) => void;
+  onMicSensitivityChange: (sensitivity: number) => void;
+  onPlaybackRateChange: (rate: number) => void;
+  onRepeatChange: (isRepeating: boolean) => void;
   onPlaybackSourceChange: (
     source: 'mp3' | 'midi',
   ) => void;
@@ -29,9 +37,17 @@ export function PlayerControls({
   currentTime,
   duration,
   playbackSource,
+  audioVolume,
+  micSensitivity,
+  playbackRate,
+  isRepeating,
   onPlayPause,
   onRestart,
   onSeek,
+  onAudioVolumeChange,
+  onMicSensitivityChange,
+  onPlaybackRateChange,
+  onRepeatChange,
   onPlaybackSourceChange,
 }: PlayerControlsProps) {
   return (
@@ -45,7 +61,11 @@ export function PlayerControls({
         justify="space-between"
         wrap="nowrap"
       >
-        <Group gap="xs" wrap="nowrap">
+        <Group
+          className="practice-player__transport"
+          gap="xs"
+          wrap="nowrap"
+        >
           <Button
             className="practice-button practice-button--secondary"
             variant="default"
@@ -158,11 +178,12 @@ export function PlayerControls({
             </Text>
             <Slider
               className="practice-player__volume"
-              value={70}
+              aria-label="Volumen del MP3"
+              value={audioVolume}
               min={0}
               max={100}
               label={null}
-              onChange={() => {}}
+              onChange={onAudioVolumeChange}
             />
           </Group>
           <Group gap="sm" wrap="nowrap">
@@ -171,11 +192,12 @@ export function PlayerControls({
             </Text>
             <Slider
               className="practice-player__volume practice-player__volume--mic"
-              value={8}
+              aria-label="Sensibilidad del micrófono"
+              value={micSensitivity}
               min={0}
               max={100}
               label={null}
-              onChange={() => {}}
+              onChange={onMicSensitivityChange}
             />
           </Group>
         </Stack>
@@ -186,13 +208,21 @@ export function PlayerControls({
           </Text>
           <NumberInput
             className="practice-speed-input"
-            value={1}
+            value={playbackRate}
             suffix="x"
             decimalScale={2}
             min={0.5}
             max={1.5}
             step={0.05}
             hideControls={false}
+            onChange={(value) => {
+              onPlaybackRateChange(
+                Math.min(
+                  Math.max(Number(value) || 1, 0.5),
+                  1.5,
+                ),
+              );
+            }}
           />
         </Stack>
 
@@ -201,8 +231,16 @@ export function PlayerControls({
             Repetir
           </Text>
           <Button
-            className="practice-button practice-button--secondary practice-button--icon"
+            aria-pressed={isRepeating}
+            className={`practice-button practice-button--secondary practice-button--icon${
+              isRepeating
+                ? ' practice-button--active'
+                : ''
+            }`}
             variant="default"
+            onClick={() => {
+              onRepeatChange(!isRepeating);
+            }}
           >
             ↻
           </Button>

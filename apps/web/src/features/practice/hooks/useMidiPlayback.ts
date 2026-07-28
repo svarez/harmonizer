@@ -8,13 +8,19 @@ import type { NoteEvent } from '@harmonizer/shared';
 
 import { midiToFrequency } from '../musicUtils';
 
+export interface MidiPlaybackNote extends NoteEvent {
+  playbackId?: string;
+  volume?: number;
+}
+
 interface UseMidiPlaybackOptions {
   enabled: boolean;
   isPlaying: boolean;
-  notes: NoteEvent[];
+  notes: MidiPlaybackNote[];
   getCurrentTime: () => number;
   midiOffsetMs: number;
   midiTimeScale: number;
+  playbackRate: number;
 }
 
 const LOOKAHEAD_SECONDS = 0.25;
@@ -29,6 +35,7 @@ export function useMidiPlayback({
   getCurrentTime,
   midiOffsetMs,
   midiTimeScale,
+  playbackRate,
 }: UseMidiPlaybackOptions) {
   const audioContextRef =
     useRef<AudioContext | null>(null);
@@ -102,7 +109,7 @@ export function useMidiPlayback({
       previousSongTimeRef.current = songTime;
 
       const visibleEndTime =
-        songTime + LOOKAHEAD_SECONDS;
+        songTime + LOOKAHEAD_SECONDS * playbackRate;
       const offsetSeconds = midiOffsetMs / 1000;
 
       for (const note of notes) {
@@ -111,28 +118,32 @@ export function useMidiPlayback({
         const audibleEnd =
           note.endSeconds * midiTimeScale + offsetSeconds;
 
+        const playbackId = note.playbackId ?? note.id;
+
         if (
           audibleEnd < songTime ||
           audibleStart > visibleEndTime ||
-          scheduledNoteIdsRef.current.has(note.id)
+          scheduledNoteIdsRef.current.has(playbackId)
         ) {
           continue;
         }
 
-        scheduledNoteIdsRef.current.add(note.id);
+        scheduledNoteIdsRef.current.add(playbackId);
 
         const startDelay = Math.max(
-          audibleStart - songTime,
+          (audibleStart - songTime) / playbackRate,
           0,
         );
         const startTime =
           audioContext.currentTime + startDelay;
         const duration = Math.max(
-          audibleEnd - Math.max(songTime, audibleStart),
+          (audibleEnd - Math.max(songTime, audibleStart)) /
+            playbackRate,
           0.04,
         );
         const stopTime = startTime + duration;
 
+        const noteVolume = note.volume ?? NOTE_VOLUME;
         const oscillator =
           audioContext.createOscillator();
         const gain = audioContext.createGain();
@@ -145,11 +156,11 @@ export function useMidiPlayback({
 
         gain.gain.setValueAtTime(0, startTime);
         gain.gain.linearRampToValueAtTime(
-          NOTE_VOLUME,
+          noteVolume,
           startTime + 0.01,
         );
         gain.gain.setValueAtTime(
-          NOTE_VOLUME,
+          noteVolume,
           Math.max(startTime + 0.01, stopTime - 0.03),
         );
         gain.gain.linearRampToValueAtTime(0, stopTime);
@@ -197,6 +208,7 @@ export function useMidiPlayback({
     midiOffsetMs,
     midiTimeScale,
     notes,
+    playbackRate,
     prepare,
     resetScheduler,
     stopActiveSources,

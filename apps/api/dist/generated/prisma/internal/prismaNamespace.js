@@ -83,6 +83,7 @@ export const SongScalarFieldEnum = {
     artist: 'artist',
     audioPath: 'audioPath',
     midiPath: 'midiPath',
+    coverPath: 'coverPath',
     durationSeconds: 'durationSeconds',
     midiOffsetMs: 'midiOffsetMs',
     midiTimeScale: 'midiTimeScale',

@@ -10,8 +10,20 @@ export async function createSong(input) {
     const songDirectory = path.join(SONGS_DIRECTORY, songId);
     const audioDestination = path.join(songDirectory, 'audio.mp3');
     const midiDestination = path.join(songDirectory, 'song.mid');
+    const coverExtension = input.coverFile
+        ? path.extname(input.coverFile.originalname).toLowerCase()
+        : undefined;
+    const coverFileName = coverExtension
+        ? `cover${coverExtension}`
+        : undefined;
+    const coverDestination = coverFileName
+        ? path.join(songDirectory, coverFileName)
+        : undefined;
     const audioPath = path.posix.join('songs', songId, 'audio.mp3');
     const midiPath = path.posix.join('songs', songId, 'song.mid');
+    const coverPath = coverFileName
+        ? path.posix.join('songs', songId, coverFileName)
+        : undefined;
     await mkdir(songDirectory, {
         recursive: true,
     });
@@ -27,6 +39,11 @@ export async function createSong(input) {
         await Promise.all([
             rename(input.audioFile.path, audioDestination),
             rename(input.midiFile.path, midiDestination),
+            ...(input.coverFile && coverDestination
+                ? [
+                    rename(input.coverFile.path, coverDestination),
+                ]
+                : []),
         ]);
         /*
          * Metadatos y pistas se guardan en una única
@@ -39,6 +56,7 @@ export async function createSong(input) {
                 artist: input.artist,
                 audioPath,
                 midiPath,
+                coverPath,
                 durationSeconds: parsedMidi.durationSeconds,
                 midiOffsetMs: input.midiOffsetMs,
                 midiTimeScale: 1,
@@ -85,6 +103,13 @@ export async function createSong(input) {
             rm(input.midiFile.path, {
                 force: true,
             }),
+            ...(input.coverFile
+                ? [
+                    rm(input.coverFile.path, {
+                        force: true,
+                    }),
+                ]
+                : []),
         ]);
         throw error;
     }
@@ -99,6 +124,7 @@ export async function listSongs() {
             title: true,
             artist: true,
             audioPath: true,
+            coverPath: true,
             durationSeconds: true,
             midiOffsetMs: true,
             midiTimeScale: true,
@@ -115,6 +141,9 @@ export async function listSongs() {
         title: record.title,
         artist: record.artist ?? undefined,
         audioUrl: storagePathToPublicUrl(record.audioPath),
+        coverUrl: record.coverPath
+            ? storagePathToPublicUrl(record.coverPath)
+            : undefined,
         durationSeconds: record.durationSeconds,
         midiOffsetMs: record.midiOffsetMs,
         midiTimeScale: record.midiTimeScale,
@@ -163,18 +192,84 @@ export async function deleteSong(songId) {
     });
     return true;
 }
-export async function updateSongSynchronization(songId, input) {
+export async function updateSongCover(songId, coverFile) {
     const existingSong = await prisma.song.findUnique({
         where: {
             id: songId,
         },
         select: {
             id: true,
+            coverPath: true,
+        },
+    });
+    if (!existingSong) {
+        await rm(coverFile.path, {
+            force: true,
+        });
+        return null;
+    }
+    const coverExtension = path
+        .extname(coverFile.originalname)
+        .toLowerCase();
+    const coverFileName = `cover-${randomUUID()}${coverExtension}`;
+    const songDirectory = path.join(SONGS_DIRECTORY, songId);
+    const coverDestination = path.join(songDirectory, coverFileName);
+    const coverPath = path.posix.join('songs', songId, coverFileName);
+    await rename(coverFile.path, coverDestination);
+    if (existingSong.coverPath &&
+        existingSong.coverPath !== coverPath) {
+        await rm(path.join(SONGS_DIRECTORY, '..', existingSong.coverPath), {
+            force: true,
+        });
+    }
+    const record = await prisma.song.update({
+        where: {
+            id: songId,
+        },
+        data: {
+            coverPath,
+        },
+        include: {
+            tracks: {
+                orderBy: {
+                    position: 'asc',
+                },
+            },
+        },
+    });
+    return databaseSongToSong(record);
+}
+export async function updateSongSynchronization(songId, input) {
+    const existingSong = await prisma.song.findUnique({
+        where: {
+            id: songId,
+        },
+        include: {
+            tracks: {
+                orderBy: {
+                    position: 'asc',
+                },
+            },
         },
     });
     if (!existingSong) {
         return null;
     }
+    const lyrics = resynchronizeLyrics(lyricsFromJson(existingSong.lyrics), {
+        previousOffsetMs: existingSong.midiOffsetMs,
+        previousTimeScale: existingSong.midiTimeScale,
+        nextOffsetMs: input.midiOffsetMs,
+        nextTimeScale: input.midiTimeScale,
+    }, existingSong.tracks.flatMap((track) => notesFromJson(track.notes)));
+    const lyricsByTrackId = Object.fromEntries(Object.entries(lyricsByTrackIdFromJson(existingSong.lyricsByTrackId)).map(([trackId, trackLyrics]) => [
+        trackId,
+        resynchronizeLyrics(trackLyrics, {
+            previousOffsetMs: existingSong.midiOffsetMs,
+            previousTimeScale: existingSong.midiTimeScale,
+            nextOffsetMs: input.midiOffsetMs,
+            nextTimeScale: input.midiTimeScale,
+        }, notesFromJson(existingSong.tracks.find((track) => track.id === trackId)?.notes ?? [])),
+    ]));
     const record = await prisma.song.update({
         where: {
             id: songId,
@@ -182,6 +277,8 @@ export async function updateSongSynchronization(songId, input) {
         data: {
             midiOffsetMs: input.midiOffsetMs,
             midiTimeScale: input.midiTimeScale,
+            lyrics: lyricsToJson(lyrics),
+            lyricsByTrackId: lyricsByTrackIdToJson(lyricsByTrackId),
         },
         include: {
             tracks: {
@@ -229,6 +326,9 @@ function databaseSongToSong(record) {
         title: record.title,
         artist: record.artist ?? undefined,
         audioUrl: storagePathToPublicUrl(record.audioPath),
+        coverUrl: record.coverPath
+            ? storagePathToPublicUrl(record.coverPath)
+            : undefined,
         durationSeconds: record.durationSeconds,
         midiOffsetMs: record.midiOffsetMs,
         midiTimeScale: record.midiTimeScale,
@@ -253,6 +353,58 @@ function lyricsToJson(lyrics) {
         noteId: line.noteId,
         text: line.text,
     }));
+}
+function roundSeconds(seconds) {
+    return Number(seconds.toFixed(3));
+}
+function resynchronizeLyrics(lyrics, change, notes = []) {
+    if (lyrics.length === 0 ||
+        change.previousOffsetMs === change.nextOffsetMs &&
+            change.previousTimeScale === change.nextTimeScale) {
+        return lyrics;
+    }
+    const previousOffsetSeconds = change.previousOffsetMs / 1000;
+    const nextOffsetSeconds = change.nextOffsetMs / 1000;
+    const previousTimeScale = change.previousTimeScale || 1;
+    const durationScale = change.nextTimeScale / previousTimeScale;
+    const notesById = new Map(notes.map((note) => [note.id, note]));
+    return lyrics
+        .map((line) => {
+        const note = line.noteId
+            ? notesById.get(line.noteId)
+            : undefined;
+        const oldNoteStartSeconds = note
+            ? note.startSeconds * previousTimeScale +
+                previousOffsetSeconds
+            : undefined;
+        const oldNoteDurationSeconds = note
+            ? note.durationSeconds * previousTimeScale
+            : undefined;
+        const newNoteStartSeconds = note
+            ? note.startSeconds * change.nextTimeScale +
+                nextOffsetSeconds
+            : undefined;
+        const startSeconds = note &&
+            oldNoteStartSeconds !== undefined &&
+            oldNoteDurationSeconds !== undefined &&
+            oldNoteDurationSeconds > 0 &&
+            newNoteStartSeconds !== undefined
+            ? roundSeconds(Math.max(newNoteStartSeconds +
+                (line.startSeconds - oldNoteStartSeconds) *
+                    durationScale, 0))
+            : roundSeconds(Math.max(((line.startSeconds - previousOffsetSeconds) /
+                previousTimeScale) *
+                change.nextTimeScale +
+                nextOffsetSeconds, 0));
+        return {
+            ...line,
+            startSeconds,
+            durationSeconds: line.durationSeconds === undefined
+                ? undefined
+                : roundSeconds(Math.max(line.durationSeconds * durationScale, 0.02)),
+        };
+    })
+        .sort((firstLine, secondLine) => firstLine.startSeconds - secondLine.startSeconds);
 }
 function lyricsByTrackIdToJson(lyricsByTrackId) {
     return Object.fromEntries(Object.entries(lyricsByTrackId).map(([trackId, lyrics]) => [

@@ -5,6 +5,8 @@ import type {
   SongSummary,
 } from '@harmonizer/shared';
 
+import { getAdminHeaders } from '../features/adminAccess';
+
 interface ApiErrorResponse {
   message?: string;
 }
@@ -62,6 +64,7 @@ export async function updateSongSynchronization(
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
+        ...getAdminHeaders(),
       },
       body: JSON.stringify(synchronization),
     },
@@ -80,8 +83,28 @@ export async function updateSongLyrics(
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
+        ...getAdminHeaders(),
       },
       body: JSON.stringify(lyricsUpdate),
+    },
+  );
+
+  return parseResponse<Song>(response);
+}
+
+export async function updateSongCover(
+  songId: string,
+  coverImage: File,
+): Promise<Song> {
+  const formData = new FormData();
+  formData.append('coverImage', coverImage);
+
+  const response = await fetch(
+    `/api/songs/${encodeURIComponent(songId)}/cover`,
+    {
+      method: 'PATCH',
+      headers: getAdminHeaders(),
+      body: formData,
     },
   );
 
@@ -95,6 +118,7 @@ export async function deleteSong(
     `/api/songs/${encodeURIComponent(songId)}`,
     {
       method: 'DELETE',
+      headers: getAdminHeaders(),
     },
   );
 

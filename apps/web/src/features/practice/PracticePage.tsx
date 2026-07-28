@@ -8,6 +8,7 @@ import {
   Stack,
   Text,
   Title,
+  Tooltip,
 } from '@mantine/core';
 
 import {
@@ -23,10 +24,14 @@ import type {
   NoteEvent,
   Song,
   SongTrack,
+  SyncedLyricWord,
 } from '@harmonizer/shared';
 
 import { useAudioPlayer } from './hooks/useAudioPlayer';
-import { useMidiPlayback } from './hooks/useMidiPlayback';
+import {
+  type MidiPlaybackNote,
+  useMidiPlayback,
+} from './hooks/useMidiPlayback';
 import { usePracticeSession } from './hooks/usePracticeSession';
 import {
   midiToNoteName,
@@ -43,6 +48,7 @@ import { getVocalTracks } from '../vocalTracks';
 interface PracticePageProps {
   song: Song;
   track: SongTrack;
+  adminAccess?: boolean;
   onBack: () => void;
 }
 
@@ -57,6 +63,9 @@ const TRACK_COLORS = [
   '#ec4899',
 ];
 
+const MAIN_MIDI_TRACK_VOLUME = 0.1;
+const SUPPORTING_MIDI_TRACK_VOLUME = 0.02;
+
 function transposeNotes(
   notes: NoteEvent[],
   semitones: number,
@@ -68,6 +77,54 @@ function transposeNotes(
   return notes.map((note) => ({
     ...note,
     midi: note.midi + semitones,
+  }));
+}
+
+function roundSeconds(seconds: number): number {
+  return Number(seconds.toFixed(3));
+}
+
+function resynchronizeLyrics(
+  lyrics: SyncedLyricWord[],
+  previousOffsetMs: number,
+  previousTimeScale: number,
+  nextOffsetMs: number,
+  nextTimeScale: number,
+): SyncedLyricWord[] {
+  if (
+    lyrics.length === 0 ||
+    (previousOffsetMs === nextOffsetMs &&
+      previousTimeScale === nextTimeScale)
+  ) {
+    return lyrics;
+  }
+
+  const previousOffsetSeconds = previousOffsetMs / 1000;
+  const nextOffsetSeconds = nextOffsetMs / 1000;
+  const safePreviousTimeScale = previousTimeScale || 1;
+  const durationScale =
+    nextTimeScale / safePreviousTimeScale;
+
+  return lyrics.map((word) => ({
+    ...word,
+    startSeconds: roundSeconds(
+      Math.max(
+        ((word.startSeconds - previousOffsetSeconds) /
+          safePreviousTimeScale) *
+          nextTimeScale +
+          nextOffsetSeconds,
+        0,
+      ),
+    ),
+    durationSeconds:
+      word.durationSeconds === undefined
+        ? undefined
+        : roundSeconds(
+            Math.max(
+              word.durationSeconds * durationScale,
+              0.02,
+            ),
+          ),
   }));
 }
 
@@ -117,6 +174,7 @@ function isBlackPianoKey(midi: number): boolean {
 export function PracticePage({
   song,
   track,
+  adminAccess = false,
   onBack,
 }: PracticePageProps) {
   const [activeTrack, setActiveTrack] =
@@ -149,6 +207,7 @@ export function PracticePage({
   >({});
   const livePitchSampleRef =
     useRef<PitchSample | null>(null);
+  const rollCardRef = useRef<HTMLDivElement | null>(null);
   const lastAutoOctaveSampleTimestampRef =
     useRef<number | null>(null);
 
@@ -171,6 +230,14 @@ export function PracticePage({
 
   const [playbackSource, setPlaybackSource] =
     useState<PlaybackSource>('mp3');
+  const [isRollFullscreen, setIsRollFullscreen] =
+    useState(false);
+  const [audioVolume, setAudioVolume] = useState(70);
+  const [micSensitivity, setMicSensitivity] = useState(
+    Math.round(MIN_RELIABLE_PITCH_CLARITY * 100),
+  );
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const [isRepeating, setIsRepeating] = useState(false);
 
   const player = useAudioPlayer();
   const {
@@ -190,12 +257,12 @@ export function PracticePage({
   const scoringConfig = useMemo(
     () => ({
       pitchToleranceCents,
-      minimumClarity: MIN_RELIABLE_PITCH_CLARITY,
+      minimumClarity: micSensitivity / 100,
       correctNoteThreshold: 0.7,
       onsetToleranceSeconds: 0.35,
       releaseToleranceSeconds: 0.45,
     }),
-    [pitchToleranceCents],
+    [micSensitivity, pitchToleranceCents],
   );
 
   const vocalTransposeSemitones =
@@ -228,6 +295,28 @@ export function PracticePage({
     [
       activeTrack.id,
       vocalTracks,
+    ],
+  );
+
+  const midiPlaybackNotes = useMemo<MidiPlaybackNote[]>(
+    () => [
+      ...practiceNotes.map((note) => ({
+        ...note,
+        playbackId: `${activeTrack.id}:${note.id}`,
+        volume: MAIN_MIDI_TRACK_VOLUME,
+      })),
+      ...supportingTracks.flatMap((supportingTrack) =>
+        supportingTrack.notes.map((note) => ({
+          ...note,
+          playbackId: `${supportingTrack.id}:${note.id}`,
+          volume: SUPPORTING_MIDI_TRACK_VOLUME,
+        })),
+      ),
+    ],
+    [
+      activeTrack.id,
+      practiceNotes,
+      supportingTracks,
     ],
   );
 
@@ -314,10 +403,11 @@ export function PracticePage({
   const midiPlayback = useMidiPlayback({
     enabled: playbackSource === 'midi',
     isPlaying,
-    notes: practiceNotes,
+    notes: midiPlaybackNotes,
     getCurrentTime,
     midiOffsetMs,
     midiTimeScale,
+    playbackRate,
   });
 
   const pitchSample =
@@ -326,6 +416,64 @@ export function PracticePage({
     midiPlayback.reset;
   const resetPracticeSession =
     practiceSession.reset;
+
+  useEffect(() => {
+    const audio = audioRef.current;
+
+    if (!audio) {
+      return;
+    }
+
+    audio.volume =
+      playbackSource === 'mp3' ? audioVolume / 100 : 0;
+    audio.playbackRate = playbackRate;
+    audio.loop = isRepeating;
+  }, [
+    audioRef,
+    audioVolume,
+    isRepeating,
+    playbackRate,
+    playbackSource,
+  ]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsRollFullscreen(
+        document.fullscreenElement === rollCardRef.current,
+      );
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key === 'Escape' &&
+        isRollFullscreen &&
+        !document.fullscreenElement
+      ) {
+        setIsRollFullscreen(false);
+      }
+    };
+
+    document.addEventListener(
+      'fullscreenchange',
+      handleFullscreenChange,
+    );
+    document.addEventListener('keydown', handleKeyDown);
+    document.body.classList.toggle(
+      'practice-roll-fullscreen-active',
+      isRollFullscreen,
+    );
+
+    return () => {
+      document.removeEventListener(
+        'fullscreenchange',
+        handleFullscreenChange,
+      );
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.classList.remove(
+        'practice-roll-fullscreen-active',
+      );
+    };
+  }, [isRollFullscreen]);
 
   useEffect(() => {
     if (
@@ -440,6 +588,28 @@ export function PracticePage({
     }
   };
 
+  const handleToggleRollFullscreen = (): void => {
+    const rollCard = rollCardRef.current;
+
+    if (isRollFullscreen) {
+      if (document.fullscreenElement) {
+        void document.exitFullscreen();
+      } else {
+        setIsRollFullscreen(false);
+      }
+
+      return;
+    }
+
+    setIsRollFullscreen(true);
+    const fullscreenRequest =
+      rollCard?.requestFullscreen?.();
+
+    void fullscreenRequest?.catch(() => {
+      setIsRollFullscreen(true);
+    });
+  };
+
   const handleMainTrackChange = (
     trackId: string,
   ): void => {
@@ -489,9 +659,26 @@ export function PracticePage({
       trackColorById,
     ],
   );
-  const activeLyrics =
+  const activeLyricsSource =
     song.lyricsByTrackId?.[activeTrack.id] ??
     song.lyrics;
+  const activeLyrics = useMemo(
+    () =>
+      resynchronizeLyrics(
+        activeLyricsSource,
+        song.midiOffsetMs,
+        song.midiTimeScale,
+        midiOffsetMs,
+        midiTimeScale,
+      ),
+    [
+      activeLyricsSource,
+      midiOffsetMs,
+      midiTimeScale,
+      song.midiOffsetMs,
+      song.midiTimeScale,
+    ],
+  );
 
   return (
     <Container
@@ -503,24 +690,14 @@ export function PracticePage({
         <div className="practice-header">
           <div>
             <Button
-              className="practice-back"
+              className="practice-brand-link"
               variant="subtle"
               onClick={() => {
                 void handleBack();
               }}
             >
-              ← Cambiar de pista
-            </Button>
-
-            <Text
-              size="sm"
-              fw={700}
-              c="indigo.3"
-              tt="uppercase"
-              className="practice-kicker"
-            >
               Harmonizer
-            </Text>
+            </Button>
 
             <Title className="practice-title" order={1}>
               {song.title}
@@ -533,157 +710,185 @@ export function PracticePage({
               {activeTrack.name}
             </Text>
           </div>
-
-          <Stack
-            className="practice-header__actions"
-            gap="lg"
-            align="end"
-          >
-            <Group gap="xs" wrap="nowrap">
-              <Button className="practice-save-button">
-                Guardar cambios
-              </Button>
-              <Button
-                className="practice-menu-button"
-                variant="default"
-              >
-                ⋮
-              </Button>
-            </Group>
-            <Button
-              className="practice-advanced-button"
-              variant="default"
-            >
-              Ajustes avanzados
-            </Button>
-          </Stack>
+          
         </div>
 
-        <Paper
-          className="practice-roll-card"
-          radius="lg"
-          p="sm"
+        <div
+          className={`practice-roll-stage${
+            isRollFullscreen
+              ? ' practice-roll-stage--fullscreen'
+              : ''
+          }`}
+          ref={rollCardRef}
         >
-          <div className="practice-roll-layout">
-            <div className="practice-piano-keys">
-              {pianoWhiteKeys.map((key) => {
-                const rowIndex = rollMaxMidi - key.midi;
-
-                return (
-                  <div
-                    className="practice-piano-key practice-piano-key--white"
-                    key={key.midi}
-                    style={{
-                      top: `${rowIndex * pianoKeyHeightPercent}%`,
-                      height: `${pianoKeyHeightPercent}%`,
-                    }}
-                  >
-                    {!key.isBlack && key.shouldShowLabel && (
-                      <Text size="xs">{key.name}</Text>
-                    )}
-                  </div>
-                );
-              })}
-
-              {pianoBlackKeys.map((key) => {
-                const rowIndex = rollMaxMidi - key.midi;
-
-                return (
-                  <div
-                    className="practice-piano-key practice-piano-key--black"
-                    key={key.midi}
-                    style={{
-                      top: `${rowIndex * pianoKeyHeightPercent}%`,
-                      height: `${pianoKeyHeightPercent}%`,
-                    }}
-                  />
-                );
-              })}
-            </div>
-
-            <PianoRollCanvas
-              notes={visualNotes}
-              supportingTracks={coloredSupportingTracks}
-              minMidi={rollMinMidi}
-              maxMidi={rollMaxMidi}
-              getAudioCurrentTime={
-                getCurrentTime
+          <Paper
+            className="practice-roll-card"
+            radius="lg"
+            p="sm"
+          >
+            <Tooltip
+              label={
+                isRollFullscreen
+                  ? 'Salir de pantalla completa'
+                  : 'Pantalla completa'
               }
-              resultsByNoteId={
-                practiceSession.resultsByNoteId
-              }
-              midiOffsetMs={midiOffsetMs}
-              midiTimeScale={midiTimeScale}
-              mainTrackColor={
-                trackColorById.get(activeTrack.id) ??
-                TRACK_COLORS[0]
-              }
-              lyrics={activeLyrics}
-              livePitchSampleRef={livePitchSampleRef}
-              livePitchSample={practiceSession.pitchSample}
-            />
+              position="left"
+            >
+              <Button
+                aria-label={
+                  isRollFullscreen
+                    ? 'Salir de pantalla completa'
+                    : 'Ver canvas a pantalla completa'
+                }
+                className="practice-roll-fullscreen-button"
+                variant="default"
+                onClick={handleToggleRollFullscreen}
+              >
+                <span
+                  className={`practice-roll-fullscreen-icon${
+                    isRollFullscreen
+                      ? ' practice-roll-fullscreen-icon--exit'
+                      : ''
+                  }`}
+                  aria-hidden="true"
+                />
+              </Button>
+            </Tooltip>
 
-            <Stack className="practice-roll-legend" gap="sm">
-              <Text fw={700} size="sm">
-                Pista principal
-              </Text>
+            <div className="practice-roll-layout">
+              <div className="practice-piano-keys">
+                {pianoWhiteKeys.map((key) => {
+                  const rowIndex = rollMaxMidi - key.midi;
 
-              {vocalTracks.length === 0 ? (
-                <Text size="xs" c="dimmed">
-                  No se han detectado pistas vocales.
+                  return (
+                    <div
+                      className="practice-piano-key practice-piano-key--white"
+                      key={key.midi}
+                      style={{
+                        top: `${rowIndex * pianoKeyHeightPercent}%`,
+                        height: `${pianoKeyHeightPercent}%`,
+                      }}
+                    >
+                      {!key.isBlack && key.shouldShowLabel && (
+                        <Text size="xs">{key.name}</Text>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {pianoBlackKeys.map((key) => {
+                  const rowIndex = rollMaxMidi - key.midi;
+
+                  return (
+                    <div
+                      className="practice-piano-key practice-piano-key--black"
+                      key={key.midi}
+                      style={{
+                        top: `${rowIndex * pianoKeyHeightPercent}%`,
+                        height: `${pianoKeyHeightPercent}%`,
+                      }}
+                    />
+                  );
+                })}
+              </div>
+
+              <PianoRollCanvas
+                notes={visualNotes}
+                supportingTracks={coloredSupportingTracks}
+                minMidi={rollMinMidi}
+                maxMidi={rollMaxMidi}
+                getAudioCurrentTime={
+                  getCurrentTime
+                }
+                resultsByNoteId={
+                  practiceSession.resultsByNoteId
+                }
+                midiOffsetMs={midiOffsetMs}
+                midiTimeScale={midiTimeScale}
+                mainTrackColor={
+                  trackColorById.get(activeTrack.id) ??
+                  TRACK_COLORS[0]
+                }
+                lyrics={activeLyrics}
+                livePitchSampleRef={livePitchSampleRef}
+                livePitchSample={practiceSession.pitchSample}
+              />
+
+              <Stack className="practice-roll-legend" gap="sm">
+                <Text fw={700} size="sm">
+                  Pista principal
                 </Text>
-              ) : (
-                <Radio.Group
-                  value={activeTrack.id}
-                  onChange={handleMainTrackChange}
-                >
-                  <Stack gap="xs">
-                    {vocalTracks.map((legendTrack) => (
-                      <Radio
-                        className="practice-track-option"
-                        key={legendTrack.id}
-                        style={
-                          {
-                            '--practice-track-color':
-                              trackColorById.get(legendTrack.id) ??
-                              TRACK_COLORS[0],
-                          } as CSSProperties
-                        }
-                        value={legendTrack.id}
-                        label={
-                          <div className="practice-track-label">
-                            <Text size="sm">
-                              {legendTrack.name}
-                            </Text>
-                            <Text size="xs" c="dimmed">
-                              {legendTrack.instrument || 'Lead Vocals'}
-                            </Text>
-                          </div>
-                        }
-                      />
-                    ))}
-                  </Stack>
-                </Radio.Group>
-              )}
-            </Stack>
-          </div>
-        </Paper>
 
-        <PlayerControls
-          isPlaying={isPlaying}
-          currentTime={currentTime}
-          duration={duration}
-          playbackSource={playbackSource}
-          onPlayPause={handlePlayPause}
-          onRestart={handleRestart}
-          onSeek={seek}
-          onPlaybackSourceChange={
-            handlePlaybackSourceChange
-          }
-        />
+                {vocalTracks.length === 0 ? (
+                  <Text size="xs" c="dimmed">
+                    No se han detectado pistas vocales.
+                  </Text>
+                ) : (
+                  <Radio.Group
+                    value={activeTrack.id}
+                    onChange={handleMainTrackChange}
+                  >
+                    <Stack gap="xs">
+                      {vocalTracks.map((legendTrack) => (
+                        <Radio
+                          className="practice-track-option"
+                          key={legendTrack.id}
+                          style={
+                            {
+                              '--practice-track-color':
+                                trackColorById.get(legendTrack.id) ??
+                                TRACK_COLORS[0],
+                            } as CSSProperties
+                          }
+                          value={legendTrack.id}
+                          label={
+                            <div className="practice-track-label">
+                              <Text size="sm">
+                                {legendTrack.name}
+                              </Text>
+                              <Text size="xs" c="dimmed">
+                                {legendTrack.instrument || 'Lead Vocals'}
+                              </Text>
+                            </div>
+                          }
+                        />
+                      ))}
+                    </Stack>
+                  </Radio.Group>
+                )}
+              </Stack>
+            </div>
+          </Paper>
 
-        <div className="practice-lower-grid">
+          <PlayerControls
+            isPlaying={isPlaying}
+            currentTime={currentTime}
+            duration={duration}
+            playbackSource={playbackSource}
+            audioVolume={audioVolume}
+            micSensitivity={micSensitivity}
+            playbackRate={playbackRate}
+            isRepeating={isRepeating}
+            onPlayPause={handlePlayPause}
+            onRestart={handleRestart}
+            onSeek={seek}
+            onAudioVolumeChange={setAudioVolume}
+            onMicSensitivityChange={setMicSensitivity}
+            onPlaybackRateChange={setPlaybackRate}
+            onRepeatChange={setIsRepeating}
+            onPlaybackSourceChange={
+              handlePlaybackSourceChange
+            }
+          />
+        </div>
+
+        <div
+          className={`practice-lower-grid${
+            adminAccess ? '' : ' practice-lower-grid--public'
+          }`}
+        >
           <LivePitchIndicator
+            wide={!adminAccess}
             status={
               practiceSession.microphoneStatus
             }
@@ -701,101 +906,103 @@ export function PracticePage({
             }
           />
 
-          <Paper
-            className="practice-card practice-settings"
-            radius="md"
-            p="lg"
-          >
-            <Stack gap="sm">
-              <Title order={4}>
-                Configuración
-              </Title>
+          {adminAccess && (
+            <Paper
+              className="practice-card practice-settings"
+              radius="md"
+              p="lg"
+            >
+              <Stack gap="sm">
+                <Title order={4}>
+                  Configuración
+                </Title>
 
-              <Text className="practice-section-label">
-                SINCRONIZACIÓN
-              </Text>
-
-              <div>
-                <Text fw={650} size="sm">
-                  Offset MIDI respecto al MP3
+                <Text className="practice-section-label">
+                  SINCRONIZACIÓN
                 </Text>
-                <Text size="xs" c="dimmed">
-                  Un valor positivo retrasa las notas MIDI
-                </Text>
-              </div>
 
-              <Group gap="xs" wrap="nowrap">
-                {[-10, -1, 50, 1, 10].map((offsetStep) => (
-                  <Button
-                    className="practice-offset-button"
-                    key={offsetStep}
-                    variant="default"
-                    onClick={() => {
-                      setMidiOffsetMs(
-                        midiOffsetMs + offsetStep,
-                      );
-                    }}
-                  >
-                    {offsetStep === 50
-                      ? '+50 ms'
-                      : offsetStep > 0
-                        ? `+${offsetStep}`
-                        : offsetStep}
-                  </Button>
-                ))}
-              </Group>
+                <div>
+                  <Text fw={650} size="sm">
+                    Offset MIDI respecto al MP3
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    Un valor positivo retrasa las notas MIDI
+                  </Text>
+                </div>
 
-              <NumberInput
-                className="practice-input"
-                label="Escala temporal MIDI"
-                description="100.00% hace que el MIDI un 0.20 % más largo"
-                value={midiTimeScale * 100}
-                onChange={(value) => {
-                  setMidiTimeScale(
-                    (Number(value) || 100) / 100,
-                  );
-                }}
-                min={95}
-                max={105}
-                step={0.01}
-                decimalScale={2}
-                suffix=" %"
-              />
+                <Group gap="xs" wrap="nowrap">
+                  {[-10, -1, 50, 1, 10].map((offsetStep) => (
+                    <Button
+                      className="practice-offset-button"
+                      key={offsetStep}
+                      variant="default"
+                      onClick={() => {
+                        setMidiOffsetMs(
+                          midiOffsetMs + offsetStep,
+                        );
+                      }}
+                    >
+                      {offsetStep === 50
+                        ? '+50 ms'
+                        : offsetStep > 0
+                          ? `+${offsetStep}`
+                          : offsetStep}
+                    </Button>
+                  ))}
+                </Group>
 
-              <NumberInput
-                className="practice-input"
-                label="Compensación del micrófono"
-                description="Corrige la latencia de entrada"
-                value={latencyCompensationMs}
-                onChange={(value) => {
-                  setLatencyCompensationMs(
-                    Number(value) || 0,
-                  );
-                }}
-                min={0}
-                max={1000}
-                step={10}
-                suffix=" ms"
-              />
+                <NumberInput
+                  className="practice-input"
+                  label="Escala temporal MIDI"
+                  description="100.00% hace que el MIDI un 0.20 % más largo"
+                  value={midiTimeScale * 100}
+                  onChange={(value) => {
+                    setMidiTimeScale(
+                      (Number(value) || 100) / 100,
+                    );
+                  }}
+                  min={95}
+                  max={105}
+                  step={0.01}
+                  decimalScale={2}
+                  suffix=" %"
+                />
 
-              <NumberInput
-                className="practice-input"
-                label="Tolerancia de afinación"
-                description="Sólo notas; equivale a medio semitono"
-                value={pitchToleranceCents}
-                onChange={(value) => {
-                  setPitchToleranceCents(
-                    Number(value) || 50,
-                  );
-                }}
-                min={10}
-                max={100}
-                step={5}
-                prefix="±"
-                suffix=" cents"
-              />
-            </Stack>
-          </Paper>
+                <NumberInput
+                  className="practice-input"
+                  label="Compensación del micrófono"
+                  description="Corrige la latencia de entrada"
+                  value={latencyCompensationMs}
+                  onChange={(value) => {
+                    setLatencyCompensationMs(
+                      Number(value) || 0,
+                    );
+                  }}
+                  min={0}
+                  max={1000}
+                  step={10}
+                  suffix=" ms"
+                />
+
+                <NumberInput
+                  className="practice-input"
+                  label="Tolerancia de afinación"
+                  description="Sólo notas; equivale a medio semitono"
+                  value={pitchToleranceCents}
+                  onChange={(value) => {
+                    setPitchToleranceCents(
+                      Number(value) || 50,
+                    );
+                  }}
+                  min={10}
+                  max={100}
+                  step={5}
+                  prefix="±"
+                  suffix=" cents"
+                />
+              </Stack>
+            </Paper>
+          )}
         </div>
 
         {practiceSession.isFinished && (

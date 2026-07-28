@@ -16,6 +16,18 @@ function fileFilter(_request, file, callback) {
         callback(new Error('midiFile debe ser un archivo MID o MIDI'));
         return;
     }
+    if (file.fieldname === 'coverImage') {
+        const validCoverExtensions = [
+            '.jpg',
+            '.jpeg',
+            '.png',
+            '.webp',
+        ];
+        if (!validCoverExtensions.includes(extension)) {
+            callback(new Error('coverImage debe ser un archivo JPG, PNG o WEBP'));
+            return;
+        }
+    }
     callback(null, true);
 }
 export const uploadSongFiles = multer({
@@ -23,9 +35,9 @@ export const uploadSongFiles = multer({
     fileFilter,
     limits: {
         fileSize: 150 * 1024 * 1024,
-        files: 2,
+        files: 3,
         fields: 5,
-        parts: 7,
+        parts: 8,
     },
 }).fields([
     {
@@ -34,6 +46,10 @@ export const uploadSongFiles = multer({
     },
     {
         name: 'midiFile',
+        maxCount: 1,
+    },
+    {
+        name: 'coverImage',
         maxCount: 1,
     },
 ]);
