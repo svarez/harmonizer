@@ -22,7 +22,7 @@ En Render:
 5. Build Command:
 
 ```bash
-npm ci && npm run db:generate && npm run build:web && npm run build:api
+npm ci --include=dev --include=optional && npm run db:generate && npm run build:web && npm run build:api
 ```
 
 6. Start Command:
@@ -37,6 +37,7 @@ Configura estas variables:
 
 ```bash
 NODE_ENV=production
+NPM_CONFIG_PRODUCTION=false
 DATABASE_URL=file:/var/data/harmonizer.db
 STORAGE_ROOT=/var/data/storage
 ```
