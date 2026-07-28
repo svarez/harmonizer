@@ -34,6 +34,7 @@ export interface Song {
   midiOffsetMs: number;
   midiTimeScale: number;
   lyrics: SyncedLyricWord[];
+  lyricsByTrackId?: Record<string, SyncedLyricWord[]>;
   tracks: SongTrack[];
   createdAt?: string;
 }
@@ -58,4 +59,5 @@ export interface SongSynchronization {
 
 export interface SongLyricsUpdate {
   lyrics: SyncedLyricWord[];
+  lyricsByTrackId?: Record<string, SyncedLyricWord[]>;
 }

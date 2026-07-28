@@ -18,6 +18,7 @@ model Song {
   midiOffsetMs    Int               @default(0)
   midiTimeScale    Float             @default(1.0)
   lyrics          Json              @default("[]")
+  lyricsByTrackId Json              @default("{}")
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 

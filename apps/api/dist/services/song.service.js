@@ -211,6 +211,7 @@ export async function updateSongLyrics(songId, input) {
         },
         data: {
             lyrics: lyricsToJson(input.lyrics),
+            lyricsByTrackId: lyricsByTrackIdToJson(input.lyricsByTrackId ?? {}),
         },
         include: {
             tracks: {
@@ -232,6 +233,7 @@ function databaseSongToSong(record) {
         midiOffsetMs: record.midiOffsetMs,
         midiTimeScale: record.midiTimeScale,
         lyrics: lyricsFromJson(record.lyrics),
+        lyricsByTrackId: lyricsByTrackIdFromJson(record.lyricsByTrackId),
         createdAt: record.createdAt.toISOString(),
         tracks: record.tracks.map((track) => ({
             id: track.id,
@@ -251,6 +253,12 @@ function lyricsToJson(lyrics) {
         noteId: line.noteId,
         text: line.text,
     }));
+}
+function lyricsByTrackIdToJson(lyricsByTrackId) {
+    return Object.fromEntries(Object.entries(lyricsByTrackId).map(([trackId, lyrics]) => [
+        trackId,
+        lyricsToJson(lyrics),
+    ]));
 }
 function lyricsFromJson(lyrics) {
     if (!Array.isArray(lyrics)) {
@@ -290,6 +298,20 @@ function lyricsFromJson(lyrics) {
     })
         .filter((line) => Boolean(line))
         .sort((firstLine, secondLine) => firstLine.startSeconds - secondLine.startSeconds);
+}
+function lyricsByTrackIdFromJson(lyricsByTrackId) {
+    if (!lyricsByTrackId ||
+        typeof lyricsByTrackId !== 'object' ||
+        Array.isArray(lyricsByTrackId)) {
+        return {};
+    }
+    return Object.fromEntries(Object.entries(lyricsByTrackId)
+        .flatMap(([trackId, lyrics]) => {
+        const syncedLyrics = lyricsFromJson(lyrics);
+        return syncedLyrics.length > 0
+            ? [[trackId, syncedLyrics]]
+            : [];
+    }));
 }
 function storagePathToPublicUrl(storagePath) {
     const normalizedPath = storagePath.replaceAll('\\', '/');

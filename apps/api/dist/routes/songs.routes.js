@@ -50,6 +50,17 @@ const updateSongLyricsSchema = z.object({
         text: line.text.trim(),
     }))
         .sort((firstLine, secondLine) => firstLine.startSeconds - secondLine.startSeconds)),
+    lyricsByTrackId: z
+        .record(z.string().trim().min(1).max(120), z
+        .array(syncedLyricWordSchema)
+        .max(5000)
+        .transform((lyrics) => lyrics
+        .map((line) => ({
+        ...line,
+        text: line.text.trim(),
+    }))
+        .sort((firstLine, secondLine) => firstLine.startSeconds - secondLine.startSeconds)))
+        .optional(),
 });
 songsRouter.get('/', async (_request, response) => {
     const songs = await listSongs();

@@ -59,6 +59,7 @@ export const SongScalarFieldEnum = {
     midiOffsetMs: 'midiOffsetMs',
     midiTimeScale: 'midiTimeScale',
     lyrics: 'lyrics',
+    lyricsByTrackId: 'lyricsByTrackId',
     createdAt: 'createdAt',
     updatedAt: 'updatedAt'
 };

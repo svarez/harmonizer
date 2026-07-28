@@ -1,11 +1,11 @@
 import {
   Alert,
   Button,
-  Checkbox,
   Container,
   Group,
   NumberInput,
   Paper,
+  Radio,
   ScrollArea,
   Slider,
   Stack,
@@ -215,6 +215,22 @@ function wordsFromCurrentLyrics(
   lyrics: SyncedLyricWord[],
 ): string[] {
   return lyrics.map((word) => word.text);
+}
+
+function suggestTrackLyricsFromMainLyrics(
+  mainLyrics: SyncedLyricWord[],
+  notes: NoteEvent[],
+  durationSeconds: number,
+): SyncedLyricWord[] {
+  if (mainLyrics.length === 0) {
+    return [];
+  }
+
+  return fitExistingLyricsToNotes(
+    mainLyrics,
+    notes,
+    durationSeconds,
+  );
 }
 
 function lrcTimestampFromDraft(
@@ -944,14 +960,34 @@ export function LyricsSynchronizationPage({
   onBack,
 }: LyricsSynchronizationPageProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const defaultVocalTrackId =
+    getVocalTracks(song)[0]?.id ?? null;
   const [savedSong, setSavedSong] = useState(song);
+  const [selectedVocalTrackId, setSelectedVocalTrackId] =
+    useState<string | null>(defaultVocalTrackId);
+  const [trackLyricsById, setTrackLyricsById] = useState<
+    Record<string, SyncedLyricWord[]>
+  >(song.lyricsByTrackId ?? {});
   const [lyrics, setLyrics] = useState<
     SyncedLyricWord[]
-  >(song.lyrics ?? []);
+  >(
+    defaultVocalTrackId
+      ? song.lyricsByTrackId?.[defaultVocalTrackId] ??
+          song.lyrics ??
+          []
+      : song.lyrics ?? [],
+  );
   const [draft, setDraft] = useState('');
   const [selectedLineId, setSelectedLineId] = useState<
     string | null
-  >(song.lyrics?.[0]?.id ?? null);
+  >(
+    (
+      defaultVocalTrackId
+        ? song.lyricsByTrackId?.[defaultVocalTrackId] ??
+          song.lyrics
+        : song.lyrics
+    )?.[0]?.id ?? null,
+  );
   const [currentTime, setCurrentTime] = useState(0);
   const [audioDuration, setAudioDuration] = useState(
     song.durationSeconds,
@@ -960,10 +996,6 @@ export function LyricsSynchronizationPage({
   const [zoom, setZoom] = useState(110);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedVocalTrackId, setSelectedVocalTrackId] =
-    useState<string | null>(
-      () => getVocalTracks(song)[0]?.id ?? null,
-    );
   const availableVocalTracks = useMemo(
     () => getVocalTracks(song),
     [song],
@@ -999,9 +1031,30 @@ export function LyricsSynchronizationPage({
     [song, vocalTracks],
   );
 
+  const lyricsByTrackIdForSave = useMemo(() => {
+    if (!selectedVocalTrackId) {
+      return trackLyricsById;
+    }
+
+    return {
+      ...trackLyricsById,
+      [selectedVocalTrackId]: lyrics,
+    };
+  }, [
+    lyrics,
+    selectedVocalTrackId,
+    trackLyricsById,
+  ]);
+  const primaryLyrics =
+    defaultVocalTrackId
+      ? lyricsByTrackIdForSave[defaultVocalTrackId] ??
+        savedSong.lyrics
+      : lyrics;
   const hasUnsavedChanges =
-    JSON.stringify(lyrics) !==
-    JSON.stringify(savedSong.lyrics ?? []);
+    JSON.stringify(primaryLyrics) !==
+      JSON.stringify(savedSong.lyrics ?? []) ||
+    JSON.stringify(lyricsByTrackIdForSave) !==
+      JSON.stringify(savedSong.lyricsByTrackId ?? {});
 
   const updateLine = (
     lineId: string,
@@ -1187,6 +1240,44 @@ export function LyricsSynchronizationPage({
     setSelectedLineId(selectedLine.id);
   };
 
+  const handleVocalTrackChange = (
+    trackId: string,
+  ): void => {
+    const nextTrack = availableVocalTracks.find(
+      (track) => track.id === trackId,
+    );
+
+    if (!nextTrack || trackId === selectedVocalTrackId) {
+      return;
+    }
+
+    const nextTrackLyricsById = selectedVocalTrackId
+      ? {
+          ...trackLyricsById,
+          [selectedVocalTrackId]: lyrics,
+        }
+      : trackLyricsById;
+    const nextTrackNotes = getAdjustedTrackNotes(
+      [nextTrack],
+      song,
+    ).sort(
+      (firstNote, secondNote) =>
+        firstNote.startSeconds - secondNote.startSeconds,
+    );
+    const nextLyrics =
+      nextTrackLyricsById[trackId] ??
+      suggestTrackLyricsFromMainLyrics(
+        savedSong.lyrics ?? [],
+        nextTrackNotes,
+        audioDuration,
+      );
+
+    setTrackLyricsById(nextTrackLyricsById);
+    setSelectedVocalTrackId(trackId);
+    setLyrics(nextLyrics);
+    setSelectedLineId(nextLyrics[0]?.id ?? null);
+  };
+
   const handlePlayPause =
     async (): Promise<void> => {
       const audio = audioRef.current;
@@ -1207,15 +1298,33 @@ export function LyricsSynchronizationPage({
     setError(null);
 
     try {
+      const nextLyricsByTrackId = selectedVocalTrackId
+        ? {
+            ...trackLyricsById,
+            [selectedVocalTrackId]: lyrics,
+          }
+        : trackLyricsById;
+      const nextPrimaryLyrics =
+        defaultVocalTrackId
+          ? nextLyricsByTrackId[defaultVocalTrackId] ??
+            savedSong.lyrics
+          : lyrics;
       const updatedSong = await updateSongLyrics(
         song.id,
         {
-          lyrics,
+          lyrics: nextPrimaryLyrics,
+          lyricsByTrackId: nextLyricsByTrackId,
         },
       );
 
       setSavedSong(updatedSong);
-      setLyrics(updatedSong.lyrics);
+      setTrackLyricsById(updatedSong.lyricsByTrackId ?? {});
+      setLyrics(
+        selectedVocalTrackId
+          ? updatedSong.lyricsByTrackId?.[selectedVocalTrackId] ??
+              updatedSong.lyrics
+          : updatedSong.lyrics,
+      );
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -1446,11 +1555,11 @@ export function LyricsSynchronizationPage({
 
               <Stack gap="xs">
                 <Text fw={650} size="sm">
-                  Pista MIDI vocal
+                  Letra de pista vocal
                 </Text>
 
                 <Text size="xs" c="dimmed">
-                  {lyrics.length} palabras · {vocalNotes.length} notas
+                  {lyrics.length} palabras · {vocalNotes.length} notas. Si la pista está vacía, se sugiere desde la letra principal.
                 </Text>
 
                 {availableVocalTracks.length === 0 ? (
@@ -1458,24 +1567,24 @@ export function LyricsSynchronizationPage({
                     No se ha detectado ninguna pista vocal en esta canción.
                   </Alert>
                 ) : (
-                  availableVocalTracks.map((track) => (
-                    <Checkbox
-                      key={track.id}
-                      checked={selectedVocalTrackId === track.id}
-                      label={
-                        track.instrument
-                          ? `${track.name} · ${track.instrument}`
-                          : track.name
-                      }
-                      onChange={(event) => {
-                        setSelectedVocalTrackId(
-                          event.currentTarget.checked
-                            ? track.id
-                            : null,
-                        );
-                      }}
-                    />
-                  ))
+                  <Radio.Group
+                    value={selectedVocalTrackId ?? ''}
+                    onChange={handleVocalTrackChange}
+                  >
+                    <Stack gap="xs">
+                      {availableVocalTracks.map((track) => (
+                        <Radio
+                          key={track.id}
+                          value={track.id}
+                          label={
+                            track.instrument
+                              ? `${track.name} · ${track.instrument}`
+                              : track.name
+                          }
+                        />
+                      ))}
+                    </Stack>
+                  </Radio.Group>
                 )}
               </Stack>
             </Stack>

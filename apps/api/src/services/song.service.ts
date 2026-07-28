@@ -49,6 +49,7 @@ interface UpdateSongSynchronizationInput {
 
 interface UpdateSongLyricsInput {
   lyrics: SyncedLyricWord[];
+  lyricsByTrackId?: Record<string, SyncedLyricWord[]>;
 }
 
 type SongWithTracks =
@@ -383,6 +384,9 @@ export async function updateSongLyrics(
 
     data: {
       lyrics: lyricsToJson(input.lyrics),
+      lyricsByTrackId: lyricsByTrackIdToJson(
+        input.lyricsByTrackId ?? {},
+      ),
     },
 
     include: {
@@ -421,6 +425,9 @@ function databaseSongToSong(
       record.midiTimeScale,
 
     lyrics: lyricsFromJson(record.lyrics),
+    lyricsByTrackId: lyricsByTrackIdFromJson(
+      record.lyricsByTrackId,
+    ),
 
     createdAt:
       record.createdAt.toISOString(),
@@ -453,6 +460,19 @@ function lyricsToJson(
     noteId: line.noteId,
     text: line.text,
   }));
+}
+
+function lyricsByTrackIdToJson(
+  lyricsByTrackId: Record<string, SyncedLyricWord[]>,
+): Prisma.InputJsonObject {
+  return Object.fromEntries(
+    Object.entries(lyricsByTrackId).map(
+      ([trackId, lyrics]) => [
+        trackId,
+        lyricsToJson(lyrics),
+      ],
+    ),
+  );
 }
 
 function lyricsFromJson(
@@ -518,6 +538,31 @@ function lyricsFromJson(
       (firstLine, secondLine) =>
         firstLine.startSeconds - secondLine.startSeconds,
     );
+}
+
+function lyricsByTrackIdFromJson(
+  lyricsByTrackId: Prisma.JsonValue,
+): Record<string, SyncedLyricWord[]> {
+  if (
+    !lyricsByTrackId ||
+    typeof lyricsByTrackId !== 'object' ||
+    Array.isArray(lyricsByTrackId)
+  ) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(
+      lyricsByTrackId as Record<string, Prisma.JsonValue>,
+    )
+      .flatMap(([trackId, lyrics]) => {
+        const syncedLyrics = lyricsFromJson(lyrics);
+
+        return syncedLyrics.length > 0
+          ? [[trackId, syncedLyrics]]
+          : [];
+      }),
+  );
 }
 
 function storagePathToPublicUrl(

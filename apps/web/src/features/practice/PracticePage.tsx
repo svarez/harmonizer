@@ -489,6 +489,9 @@ export function PracticePage({
       trackColorById,
     ],
   );
+  const activeLyrics =
+    song.lyricsByTrackId?.[activeTrack.id] ??
+    song.lyrics;
 
   return (
     <Container
@@ -615,7 +618,7 @@ export function PracticePage({
                 trackColorById.get(activeTrack.id) ??
                 TRACK_COLORS[0]
               }
-              lyrics={song.lyrics}
+              lyrics={activeLyrics}
               livePitchSampleRef={livePitchSampleRef}
               livePitchSample={practiceSession.pitchSample}
             />
