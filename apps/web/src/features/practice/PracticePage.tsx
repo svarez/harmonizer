@@ -377,9 +377,7 @@ export function PracticePage({
   );
   const [playbackRate, setPlaybackRate] = useState(1);
   const [isRepeating, setIsRepeating] = useState(false);
-  const [verdictMessage, setVerdictMessage] =
-    useState<string | null>(null);
-  const [isVerdictVisible, setIsVerdictVisible] =
+  const [isVerdictDismissed, setIsVerdictDismissed] =
     useState(false);
 
   const player = useAudioPlayer();
@@ -701,29 +699,32 @@ export function PracticePage({
     activeTrack.notes,
   ]);
 
-  useEffect(() => {
-    if (!practiceSession.isFinished) {
-      setIsVerdictVisible(false);
-      return;
-    }
-
-    setVerdictMessage(
+  const verdictMessage = useMemo(
+    () =>
       getBeatlesVerdict(
         practiceSession.summary.globalAccuracy,
       ),
-    );
-    setIsVerdictVisible(true);
+    [practiceSession.summary.globalAccuracy],
+  );
+
+  useEffect(() => {
+    if (
+      !practiceSession.isFinished ||
+      isVerdictDismissed
+    ) {
+      return;
+    }
 
     const timeoutId = window.setTimeout(() => {
-      setIsVerdictVisible(false);
+      setIsVerdictDismissed(true);
     }, VERDICT_VISIBLE_MS);
 
     return () => {
       window.clearTimeout(timeoutId);
     };
   }, [
+    isVerdictDismissed,
     practiceSession.isFinished,
-    practiceSession.summary.globalAccuracy,
   ]);
 
   const handlePlayPause =
@@ -737,6 +738,7 @@ export function PracticePage({
         hasEnded ||
         practiceSession.isFinished
       ) {
+        setIsVerdictDismissed(false);
         restart();
         midiPlayback.reset();
         practiceSession.reset();
@@ -750,7 +752,7 @@ export function PracticePage({
     };
 
   const handleRestart = (): void => {
-    setIsVerdictVisible(false);
+    setIsVerdictDismissed(false);
     restart();
     midiPlayback.reset();
     practiceSession.reset();
@@ -1197,9 +1199,12 @@ export function PracticePage({
           <BeatlesVerdictOverlay
             summary={practiceSession.summary}
             message={verdictMessage}
-            visible={isVerdictVisible}
+            visible={
+              practiceSession.isFinished &&
+              !isVerdictDismissed
+            }
             onClose={() => {
-              setIsVerdictVisible(false);
+              setIsVerdictDismissed(true);
             }}
           />
         )}

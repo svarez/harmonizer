@@ -1,7 +1,10 @@
+import path from 'node:path';
+import { existsSync } from 'node:fs';
+
 import cors from 'cors';
 import express from 'express';
 
-import { STORAGE_ROOT } from './config/storage.js';
+import { PROJECT_ROOT, STORAGE_ROOT } from './config/storage.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { songsRouter } from './routes/songs.routes.js';
 
@@ -11,7 +14,7 @@ app.disable('x-powered-by');
 
 app.use(
   cors({
-    origin: 'http://localhost:5173',
+    origin: process.env.CORS_ORIGIN ?? 'http://localhost:5173',
   }),
 );
 
@@ -42,5 +45,20 @@ app.use(
     });
   },
 );
+
+if (process.env.NODE_ENV === 'production') {
+  const webDistPath = path.join(
+    PROJECT_ROOT,
+    'apps/web/dist',
+  );
+
+  if (existsSync(webDistPath)) {
+    app.use(express.static(webDistPath));
+
+    app.get(/^(?!\/api|\/media).*/, (_request, response) => {
+      response.sendFile(path.join(webDistPath, 'index.html'));
+    });
+  }
+}
 
 app.use(errorHandler);

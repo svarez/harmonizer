@@ -10,7 +10,7 @@ export const PROJECT_ROOT = path.resolve(
   '../../../..',
 );
 
-export const STORAGE_ROOT = path.join(
+export const STORAGE_ROOT = process.env.STORAGE_ROOT ?? path.join(
   PROJECT_ROOT,
   'storage',
 );

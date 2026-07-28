@@ -1,7 +1,7 @@
 import { app } from './app.js';
 import { ensureStorage, } from './config/storage.js';
 import { prisma, } from './lib/prisma.js';
-const PORT = 3001;
+const PORT = Number(process.env.PORT ?? 3001);
 async function startServer() {
     await ensureStorage();
     const server = app.listen(PORT, () => {
